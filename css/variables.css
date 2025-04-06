@@ -1,0 +1,36 @@
+/**
+ * LCD Events CSS Variables
+ */
+
+:root {
+    /* Colors */
+    --color-primary: #2e73b4;
+    --color-primary-light: #e8f2fa;
+    --color-secondary: #333;
+    --color-secondary-light: #f5f5f5;
+    --color-text: #333;
+    --color-text-light: #666;
+    --color-border: #eee;
+    --color-border-light: #f0f0f0;
+    
+    /* Spacing */
+    --spacing-xs: 0.25rem;
+    --spacing-sm: 0.5rem;
+    --spacing-md: 1rem;
+    --spacing-lg: 2rem;
+    --spacing-xl: 3rem;
+    
+    /* Typography */
+    --font-size-xs: 0.75rem;
+    --font-size-sm: 0.875rem;
+    --font-size-md: 1rem;
+    --font-size-lg: 1.25rem;
+    --font-size-xl: 1.5rem;
+    --line-height-tight: 1.2;
+    --line-height-normal: 1.5;
+    --line-height-loose: 1.8;
+    
+    /* Effects */
+    --border-radius: 4px;
+    --box-shadow: 0 2px 10px rgba(0, 0, 0, 0.08);
+} 
