@@ -722,7 +722,7 @@
     font-weight: 600;
 }
 
-.event-date-time {
+.event-meta-header .meta-item {
     display: flex;
     gap: var(--spacing-sm);
 }
