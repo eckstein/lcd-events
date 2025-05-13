@@ -715,6 +715,7 @@
 .event-meta-header .meta-content {
     display: flex;
     align-items: center;
+    gap: var(--spacing-sm);
 }
 
 .event-meta-header .meta-content span {
@@ -722,10 +723,6 @@
     font-weight: 600;
 }
 
-.event-meta-header .meta-item {
-    display: flex;
-    gap: var(--spacing-sm);
-}
 
 @media (max-width: 768px) {
     .event-meta-header {
