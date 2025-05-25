@@ -1549,3 +1549,571 @@ function lcd_events_frontend_scripts() {
     }
 }
 add_action('wp_enqueue_scripts', 'lcd_events_frontend_scripts');
+
+/**
+ * Add Volunteer Shifts Admin Page
+ */
+function lcd_add_volunteer_shifts_page() {
+    add_submenu_page(
+        'edit.php?post_type=event',           // Parent slug (Events menu)
+        __('Volunteer Shifts', 'lcd-events'), // Page title
+        __('Volunteer Shifts', 'lcd-events'), // Menu title
+        'edit_posts',                         // Capability required
+        'volunteer-shifts',                   // Menu slug
+        'lcd_volunteer_shifts_page_callback'  // Callback function
+    );
+}
+add_action('admin_menu', 'lcd_add_volunteer_shifts_page');
+
+/**
+ * Volunteer Shifts Admin Page Callback
+ */
+function lcd_volunteer_shifts_page_callback() {
+    // Get all upcoming events with volunteer shifts
+    $events = get_posts(array(
+        'post_type' => 'event',
+        'posts_per_page' => -1,
+        'meta_query' => array(
+            array(
+                'key' => '_event_date',
+                'value' => date('Y-m-d'),
+                'compare' => '>=',
+                'type' => 'DATE'
+            )
+        ),
+        'orderby' => 'meta_value',
+        'meta_key' => '_event_date',
+        'order' => 'ASC'
+    ));
+
+    ?>
+    <div class="wrap">
+        <h1><?php _e('Volunteer Shifts', 'lcd-events'); ?></h1>
+        
+        <?php if (empty($events)) : ?>
+            <div class="notice notice-info">
+                <p><?php _e('No upcoming events with volunteer shifts found.', 'lcd-events'); ?></p>
+            </div>
+        <?php else : ?>
+            <div class="lcd-volunteer-shifts-overview">
+                <?php foreach ($events as $event) : 
+                    $shifts = lcd_get_event_volunteer_shifts($event->ID);
+                    if (empty($shifts)) continue;
+                    
+                    $event_date = get_post_meta($event->ID, '_event_date', true);
+                    $formatted_date = date_i18n(get_option('date_format'), strtotime($event_date));
+                    
+                    // Get all signups for this event
+                    $all_signups = lcd_get_volunteer_signups($event->ID);
+                    $signups_by_shift = array();
+                    foreach ($all_signups as $signup) {
+                        $signups_by_shift[$signup->shift_index][] = $signup;
+                    }
+                    ?>
+                    
+                    <div class="lcd-event-shifts-section">
+                        <h2>
+                            <a href="<?php echo get_edit_post_link($event->ID); ?>">
+                                <?php echo esc_html($event->post_title); ?>
+                            </a>
+                            <span class="event-date"><?php echo esc_html($formatted_date); ?></span>
+                        </h2>
+                        
+                        <div id="volunteer-shifts-container-<?php echo $event->ID; ?>" class="volunteer-shifts-container">
+                            <?php foreach ($shifts as $index => $shift) : 
+                                $shift_signups = $signups_by_shift[$index] ?? array();
+                                $signup_count = count($shift_signups);
+                                $max_volunteers = !empty($shift['max_volunteers']) ? $shift['max_volunteers'] : '∞';
+                                
+                                $time_string = '';
+                                if (!empty($shift['start_time'])) {
+                                    $time_string = date_i18n(get_option('time_format'), strtotime($shift['start_time']));
+                                    if (!empty($shift['end_time'])) {
+                                        $time_string .= ' - ' . date_i18n(get_option('time_format'), strtotime($shift['end_time']));
+                                    }
+                                }
+                                ?>
+                                
+                                <div class="volunteer-shift-item" data-index="<?php echo $index; ?>" data-event-id="<?php echo $event->ID; ?>">
+                                    <div class="shift-summary" data-shift="<?php echo $index; ?>">
+                                        <div class="shift-summary-content">
+                                            <div class="shift-title-summary">
+                                                <strong><?php echo esc_html($shift['title']); ?></strong>
+                                            </div>
+                                            <div class="shift-meta-summary">
+                                                <?php if (!empty($shift['date'])) : ?>
+                                                    <span class="shift-date-summary">
+                                                        <?php echo date_i18n(get_option('date_format'), strtotime($shift['date'])); ?>
+                                                    </span>
+                                                <?php endif; ?>
+                                                
+                                                <?php if ($time_string) : ?>
+                                                    <span class="shift-time-summary"><?php echo esc_html($time_string); ?></span>
+                                                <?php endif; ?>
+                                                
+                                                <span class="shift-signups-summary">
+                                                    <?php 
+                                                    if ($max_volunteers !== '∞') {
+                                                        printf(__('%d / %s volunteers', 'lcd-events'), $signup_count, $max_volunteers);
+                                                    } else {
+                                                        printf(__('%d volunteers', 'lcd-events'), $signup_count);
+                                                    }
+                                                    ?>
+                                                </span>
+                                            </div>
+                                        </div>
+                                        <div class="shift-summary-actions">
+                                            <button type="button" class="button button-small toggle-shift-details" data-expanded="false">
+                                                <span class="dashicons dashicons-arrow-down-alt2"></span>
+                                                <?php _e('Details', 'lcd-events'); ?>
+                                            </button>
+                                        </div>
+                                    </div>
+                                    
+                                    <div class="shift-details" style="display: none;">
+                                        <?php 
+                                        // Display shift date and time prominently in details
+                                        if (!empty($shift['date']) || $time_string) : ?>
+                                            <div class="shift-datetime-info">
+                                                <?php if (!empty($shift['date'])) : ?>
+                                                    <div class="shift-date-info">
+                                                        <strong><?php _e('Date:', 'lcd-events'); ?></strong>
+                                                        <span><?php echo date_i18n(get_option('date_format'), strtotime($shift['date'])); ?></span>
+                                                    </div>
+                                                <?php endif; ?>
+                                                
+                                                <?php if ($time_string) : ?>
+                                                    <div class="shift-time-info">
+                                                        <strong><?php _e('Time:', 'lcd-events'); ?></strong>
+                                                        <span><?php echo esc_html($time_string); ?></span>
+                                                    </div>
+                                                <?php endif; ?>
+                                            </div>
+                                        <?php endif; ?>
+                                        
+                                        <?php if (!empty($shift['description'])) : ?>
+                                            <div class="shift-description">
+                                                <strong><?php _e('Description:', 'lcd-events'); ?></strong>
+                                                <p><?php echo esc_html($shift['description']); ?></p>
+                                            </div>
+                                        <?php endif; ?>
+                                        
+                                        <?php if (!empty($shift_signups)) : ?>
+                                            <div class="shift-signups">
+                                                <h5>
+                                                    <span class="dashicons dashicons-groups"></span>
+                                                    <?php _e('Registered Volunteers:', 'lcd-events'); ?>
+                                                    <span class="signups-count">(<?php echo count($shift_signups); ?>)</span>
+                                                </h5>
+                                                <div class="signups-list">
+                                                    <?php foreach ($shift_signups as $signup) : 
+                                                        $person_name = esc_html($signup->volunteer_name);
+                                                        $person_email = esc_html($signup->volunteer_email);
+                                                        $person_phone = esc_html($signup->volunteer_phone ?? '');
+                                                        $person_notes = esc_html($signup->volunteer_notes ?? '');
+                                                        $person_id_attr = isset($signup->person_id) && $signup->person_id ? 'data-person-id="' . esc_attr($signup->person_id) . '"' : '';
+                                                        $signup_id_attr = 'data-signup-id="' . esc_attr($signup->id) . '"';
+                                                        
+                                                        // If linked to an lcd_person, fetch their latest details
+                                                        if (isset($signup->person_id) && $signup->person_id) {
+                                                            $person_post = get_post($signup->person_id);
+                                                            if ($person_post) {
+                                                                $person_name = esc_html($person_post->post_title);
+                                                                $person_email = esc_html(get_post_meta($signup->person_id, '_lcd_person_email', true));
+                                                                $person_phone = esc_html(get_post_meta($signup->person_id, '_lcd_person_phone', true));
+                                                            }
+                                                        }
+                                                        ?>
+                                                        <div class="signup-item-compact" <?php echo $person_id_attr; ?> <?php echo $signup_id_attr; ?>>
+                                                            <div class="signup-actions">
+                                                                <button type="button" class="button-link button-link-delete unassign-volunteer" title="<?php esc_attr_e('Remove from shift', 'lcd-events'); ?>">
+                                                                    <span class="dashicons dashicons-no-alt"></span>
+                                                                </button>
+                                                            </div>
+                                                            <div class="signup-primary">
+                                                                <strong><?php echo $person_name; ?></strong>
+                                                                <span class="signup-contact">
+                                                                    <?php echo $person_email; ?>
+                                                                    <?php if (!empty($person_phone)) : ?>
+                                                                        • <?php echo $person_phone; ?>
+                                                                    <?php endif; ?>
+                                                                </span>
+                                                            </div>
+                                                            <?php if (!empty($signup->volunteer_notes)) : ?>
+                                                                <div class="signup-notes">
+                                                                    <div class="signup-notes-display">
+                                                                        <span class="notes-text"><?php echo esc_html($signup->volunteer_notes); ?></span>
+                                                                        <button type="button" class="button-link edit-notes" title="<?php esc_attr_e('Edit notes', 'lcd-events'); ?>">
+                                                                            <span class="dashicons dashicons-edit"></span>
+                                                                        </button>
+                                                                    </div>
+                                                                    <div class="signup-notes-edit" style="display: none;">
+                                                                        <textarea class="notes-edit-field" rows="2"><?php echo esc_textarea($signup->volunteer_notes); ?></textarea>
+                                                                        <div class="notes-edit-actions">
+                                                                            <button type="button" class="button button-small save-notes"><?php _e('Save', 'lcd-events'); ?></button>
+                                                                            <button type="button" class="button button-small cancel-notes"><?php _e('Cancel', 'lcd-events'); ?></button>
+                                                                        </div>
+                                                                    </div>
+                                                                </div>
+                                                            <?php else : ?>
+                                                                <div class="signup-notes">
+                                                                    <div class="signup-notes-display">
+                                                                        <span class="notes-text no-notes"><?php _e('No notes', 'lcd-events'); ?></span>
+                                                                        <button type="button" class="button-link edit-notes" title="<?php esc_attr_e('Add notes', 'lcd-events'); ?>">
+                                                                            <span class="dashicons dashicons-edit"></span>
+                                                                        </button>
+                                                                    </div>
+                                                                    <div class="signup-notes-edit" style="display: none;">
+                                                                        <textarea class="notes-edit-field" rows="2" placeholder="<?php esc_attr_e('Add notes for this assignment...', 'lcd-events'); ?>"></textarea>
+                                                                        <div class="notes-edit-actions">
+                                                                            <button type="button" class="button button-small save-notes"><?php _e('Save', 'lcd-events'); ?></button>
+                                                                            <button type="button" class="button button-small cancel-notes"><?php _e('Cancel', 'lcd-events'); ?></button>
+                                                                        </div>
+                                                                    </div>
+                                                                </div>
+                                                            <?php endif; ?>
+                                                            <div class="signup-date"><?php echo date_i18n('M j, Y \a\t g:i A', strtotime($signup->signup_date)); ?></div>
+                                                        </div>
+                                                    <?php endforeach; ?>
+                                                </div>
+                                            </div>
+                                        <?php endif; ?>
+
+                                        <div class="assign-volunteer-section">
+                                            <h6 class="assign-volunteer-title"><?php _e('Assign Person to Shift:', 'lcd-events'); ?></h6>
+                                            <div class="assign-volunteer-controls">
+                                                <select class="lcd-person-search-select" data-shift-index="<?php echo $index; ?>" data-event-id="<?php echo $event->ID; ?>" style="width: 100%; margin-bottom: 5px;">
+                                                    <option></option>
+                                                </select>
+                                                <textarea class="shift-assignment-notes" 
+                                                          placeholder="<?php _e('Optional notes for this assignment (e.g., specific tasks, time constraints, etc.)', 'lcd-events'); ?>" 
+                                                          rows="2" 
+                                                          style="width: 100%; margin-top: 5px; resize: vertical;"></textarea>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            <?php endforeach; ?>
+                        </div>
+                    </div>
+                <?php endforeach; ?>
+            </div>
+        <?php endif; ?>
+    </div>
+    <?php
+}
+
+// Add styles for the volunteer shifts overview page
+function lcd_volunteer_shifts_admin_styles() {
+    $screen = get_current_screen();
+    if ($screen->id !== 'event_page_volunteer-shifts') return;
+    
+    // Enqueue Select2
+    if (!wp_style_is('select2', 'enqueued')) {
+        wp_enqueue_style(
+            'select2',
+            'https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/css/select2.min.css',
+            array(),
+            '4.1.0-rc.0'
+        );
+    }
+    if (!wp_script_is('select2', 'enqueued')) {
+        wp_enqueue_script(
+            'select2',
+            'https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js',
+            array('jquery'),
+            '4.1.0-rc.0',
+            true
+        );
+    }
+
+    // Enqueue our admin events JavaScript
+    wp_enqueue_script(
+        'lcd-events-admin',
+        LCD_EVENTS_PLUGIN_URL . 'js/admin-events.js',
+        array('jquery', 'select2'),
+        LCD_EVENTS_VERSION,
+        true
+    );
+
+    wp_localize_script('lcd-events-admin', 'lcdEventsAdmin', [
+        'ajaxurl' => admin_url('admin-ajax.php'),
+        'search_people_nonce' => wp_create_nonce('lcd_event_shifts_people_search'),
+        'assign_person_nonce' => wp_create_nonce('lcd_event_assign_person_to_shift'),
+        'unassign_person_nonce' => wp_create_nonce('lcd_event_unassign_person_from_shift'),
+        'edit_notes_nonce' => wp_create_nonce('lcd_event_edit_volunteer_notes'),
+        'text' => [
+            'confirm_unassign' => __('Are you sure you want to remove this volunteer from this shift?', 'lcd-events'),
+            'error_assigning' => __('Could not assign volunteer. Please try again.', 'lcd-events'),
+            'error_unassigning' => __('Could not remove volunteer. Please try again.', 'lcd-events'),
+            'error_editing_notes' => __('Could not save notes. Please try again.', 'lcd-events'),
+            'searching' => __('Searching...', 'lcd-events'),
+            'no_results' => __('No people found matching your search.', 'lcd-events'),
+            'error_loading' => __('Could not load search results.', 'lcd-events'),
+            'edit_notes' => __('Edit notes', 'lcd-events'),
+            'add_notes' => __('Add notes', 'lcd-events'),
+            'no_notes' => __('No notes', 'lcd-events'),
+            'search_placeholder' => __('Search by name or email...', 'lcd-events'),
+            'input_too_short' => __('Please enter 2 or more characters', 'lcd-events'),
+            'registered_volunteers' => __('Registered Volunteers:', 'lcd-events'),
+        ]
+    ]);
+    
+    // Enqueue the main CSS file
+    wp_enqueue_style(
+        'lcd-events-admin-styles',
+        LCD_EVENTS_PLUGIN_URL . 'css/lcd-events.css',
+        array(), 
+        LCD_EVENTS_VERSION
+    );
+    
+    ?>
+    <style>
+        .lcd-volunteer-shifts-overview {
+            margin-top: 20px;
+        }
+        
+        .lcd-event-shifts-section {
+            background: #fff;
+            border: 1px solid #ccd0d4;
+            box-shadow: 0 1px 1px rgba(0,0,0,.04);
+            margin-bottom: 20px;
+            padding: 0;
+        }
+        
+        .lcd-event-shifts-section h2 {
+            border-bottom: 1px solid #ccd0d4;
+            margin: 0;
+            padding: 15px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+        
+        .lcd-event-shifts-section .event-date {
+            color: #666;
+            font-size: 14px;
+            font-weight: normal;
+            margin-left: 10px;
+        }
+
+        .volunteer-shifts-container {
+            padding: 15px;
+        }
+        
+        /* Ensure proper styling for shift description */
+        .shift-description {
+            margin-bottom: 15px;
+            padding: 10px;
+            background: #f9f9f9;
+            border-left: 3px solid #0073aa;
+            border-radius: 3px;
+        }
+        
+        .shift-description strong {
+            display: block;
+            margin-bottom: 5px;
+            color: #23282d;
+        }
+        
+        .shift-description p {
+            margin: 0;
+            color: #666;
+        }
+        
+        /* Styling for shift date/time info */
+        .shift-datetime-info {
+            margin-bottom: 15px;
+            padding: 12px;
+            background: #e8f4f8;
+            border-left: 3px solid #00a0d2;
+            border-radius: 3px;
+            display: flex;
+            gap: 20px;
+            flex-wrap: wrap;
+        }
+        
+        .shift-date-info,
+        .shift-time-info {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        
+        .shift-date-info strong,
+        .shift-time-info strong {
+            color: #00a0d2;
+            font-weight: 600;
+            margin: 0;
+        }
+        
+        .shift-date-info span,
+        .shift-time-info span {
+            color: #23282d;
+            font-weight: 500;
+        }
+        
+        @media (max-width: 768px) {
+            .shift-datetime-info {
+                flex-direction: column;
+                gap: 8px;
+            }
+        }
+        
+        /* Override any conflicting styles for the overview page */
+        .lcd-volunteer-shifts-overview .volunteer-shift-item {
+            background: #fff;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            margin-bottom: 15px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        }
+        
+        .lcd-volunteer-shifts-overview .shift-summary {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 15px;
+            cursor: pointer;
+            border-bottom: 1px solid #eee;
+            background: #fafafa;
+        }
+        
+        .lcd-volunteer-shifts-overview .shift-summary:hover {
+            background: #f0f0f0;
+        }
+        
+        .lcd-volunteer-shifts-overview .shift-summary-content {
+            flex: 1;
+        }
+        
+        .lcd-volunteer-shifts-overview .shift-title-summary strong {
+            font-size: 16px;
+            color: #23282d;
+            margin-bottom: 5px;
+            display: block;
+        }
+        
+        .lcd-volunteer-shifts-overview .shift-meta-summary {
+            display: flex;
+            gap: 15px;
+            flex-wrap: wrap;
+            font-size: 13px;
+            color: #666;
+        }
+        
+        .lcd-volunteer-shifts-overview .shift-date-summary,
+        .lcd-volunteer-shifts-overview .shift-time-summary,
+        .lcd-volunteer-shifts-overview .shift-signups-summary {
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+        }
+        
+        .lcd-volunteer-shifts-overview .shift-signups-summary {
+            background: #0073aa;
+            color: white;
+            padding: 2px 8px;
+            border-radius: 12px;
+            font-size: 12px;
+            font-weight: 500;
+        }
+        
+        .lcd-volunteer-shifts-overview .shift-summary-actions {
+            display: flex;
+            gap: 5px;
+        }
+        
+        .lcd-volunteer-shifts-overview .shift-details {
+            padding: 15px;
+            border-top: 1px solid #eee;
+        }
+        
+        /* Fix signup item styling */
+        .lcd-volunteer-shifts-overview .signup-item-compact {
+            display: flex;
+            align-items: flex-start;
+            gap: 10px;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            margin-bottom: 8px;
+            background: #fff;
+            position: relative;
+        }
+        
+        .lcd-volunteer-shifts-overview .signup-actions {
+            position: absolute;
+            top: 8px;
+            right: 8px;
+        }
+        
+        .lcd-volunteer-shifts-overview .signup-primary {
+            flex: 1;
+            margin-right: 30px; /* Make room for the action button */
+        }
+        
+        .lcd-volunteer-shifts-overview .signup-primary strong {
+            display: block;
+            margin-bottom: 3px;
+            color: #23282d;
+        }
+        
+        .lcd-volunteer-shifts-overview .signup-contact {
+            font-size: 13px;
+            color: #666;
+        }
+        
+        .lcd-volunteer-shifts-overview .signup-notes {
+            margin-top: 8px;
+            font-size: 13px;
+        }
+        
+        .lcd-volunteer-shifts-overview .signup-date {
+            position: absolute;
+            bottom: 8px;
+            right: 8px;
+            font-size: 11px;
+            color: #999;
+        }
+        
+        /* Button styling */
+        .lcd-volunteer-shifts-overview .button-link-delete {
+            color: #a00;
+            text-decoration: none;
+            padding: 2px;
+            border-radius: 2px;
+        }
+        
+        .lcd-volunteer-shifts-overview .button-link-delete:hover {
+            color: #dc3232;
+            background: #f0f0f0;
+        }
+        
+        .lcd-volunteer-shifts-overview .button-link-delete .dashicons {
+            font-size: 16px;
+            width: 16px;
+            height: 16px;
+        }
+        
+        /* Select2 styling adjustments */
+        .lcd-volunteer-shifts-overview .select2-container {
+            margin-bottom: 10px;
+        }
+        
+        .lcd-volunteer-shifts-overview .assign-volunteer-section {
+            margin-top: 20px;
+            padding-top: 15px;
+            border-top: 1px solid #eee;
+        }
+        
+        .lcd-volunteer-shifts-overview .assign-volunteer-title {
+            margin: 0 0 10px 0;
+            font-size: 14px;
+            font-weight: 600;
+            color: #23282d;
+        }
+    </style>
+    <?php
+}
+add_action('admin_head', 'lcd_volunteer_shifts_admin_styles');

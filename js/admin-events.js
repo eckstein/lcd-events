@@ -58,6 +58,12 @@ jQuery(document).ready(function($) {
             details.slideDown(200);
             icon.removeClass('dashicons-arrow-down-alt2').addClass('dashicons-arrow-up-alt2');
             button.data('expanded', true);
+
+            // Initialize Select2 when expanding if not already initialized
+            const select = details.find('.lcd-person-search-select');
+            if (!select.data('select2init')) {
+                initShiftPersonSearch(shiftItem);
+            }
         }
     });
     
@@ -173,45 +179,80 @@ jQuery(document).ready(function($) {
                     },
                     processResults: function (data, params) {
                         params.page = params.page || 1;
-                        return {
-                            results: data.data.items,
-                            pagination: {
-                                more: (params.page * 10) < (data.data.total_count || 0)
-                            }
-                        };
+                        
+                        if (data.success && data.data && data.data.items) {
+                            return {
+                                results: data.data.items,
+                                pagination: {
+                                    more: (params.page * 10) < (data.data.total_count || 0)
+                                }
+                            };
+                        } else {
+                            return {
+                                results: [],
+                                pagination: { more: false }
+                            };
+                        }
                     },
                     cache: true
                 },
-                placeholder: lcdEventsAdmin.text.search_placeholder,
+                placeholder: lcdEventsAdmin.text.search_placeholder || 'Search by name or email...',
                 minimumInputLength: 2,
                 allowClear: true,
                 width: '100%',
-                dropdownParent: $select.parent(),
+                dropdownParent: $select.closest('.assign-volunteer-controls'),
                 language: {
-                    inputTooShort: function() { return lcdEventsAdmin.text.input_too_short; },
-                    searching: function() { return lcdEventsAdmin.text.searching; },
-                    noResults: function() { return lcdEventsAdmin.text.no_results; },
-                    errorLoading: function() { return lcdEventsAdmin.text.error_loading; }
+                    inputTooShort: function() { return lcdEventsAdmin.text.input_too_short || 'Please enter 2 or more characters'; },
+                    searching: function() { return lcdEventsAdmin.text.searching || 'Searching...'; },
+                    noResults: function() { return lcdEventsAdmin.text.no_results || 'No people found matching your search.'; },
+                    errorLoading: function() { return lcdEventsAdmin.text.error_loading || 'Could not load search results.'; }
                 }
             }).on('select2:select', function (e) {
                 const person = e.params.data;
                 const shiftItem = $(this).closest('.volunteer-shift-item');
                 const shiftIndex = shiftItem.data('index');
-                assignPersonToShift(person.id, shiftIndex, shiftItem);
-                $(this).val(null).trigger('change');
+                
+                // Get event ID - either from data attribute (overview page) or global variable (edit page)
+                let eventId = shiftItem.data('event-id');
+                if (!eventId && typeof lcdEventsAdmin.event_id !== 'undefined') {
+                    eventId = lcdEventsAdmin.event_id;
+                }
+                
+                if (eventId) {
+                    assignPersonToShift(person.id, shiftIndex, shiftItem, eventId);
+                } else {
+                    console.error('No event ID found for shift assignment');
+                    alert('Error: Could not determine event ID for assignment');
+                }
             });
         });
     }
     
-    // Initialize for existing items
-    initShiftPersonSearch($('#volunteer-shifts-container'));
+    // Initialize for existing items on page load
+    $(document).ready(function() {
+        // Initialize for single event edit page
+        initShiftPersonSearch($('#volunteer-shifts-container'));
+        
+        // Initialize for volunteer shifts overview page
+        initShiftPersonSearch($('.lcd-volunteer-shifts-overview'));
+        
+        // Initialize Select2 for any expanded shifts on page load
+        $('.shift-details:visible').each(function() {
+            initShiftPersonSearch($(this).closest('.volunteer-shift-item'));
+        });
+    });
 
-    function assignPersonToShift(personId, shiftIndex, shiftItemElement) {
-        const eventId = parseInt(lcdEventsAdmin.event_id);
-        const shiftTitleInput = shiftItemElement.find('input[name="volunteer_shifts[' + shiftIndex + '][title]"]');
-        const shiftTitle = shiftTitleInput.val() || lcdEventsAdmin.text.shift + ' ' + (shiftIndex + 1);
-        const notesTextarea = shiftItemElement.find('.shift-assignment-notes');
-        const assignmentNotes = notesTextarea.val().trim();
+    // Assign person to shift
+    function assignPersonToShift(personId, shiftIndex, shiftItemElement, eventId) {
+        const assignmentNotes = shiftItemElement.find('.shift-assignment-notes').val();
+        
+        // Get shift title - different methods for edit page vs overview page
+        let shiftTitle = shiftItemElement.find('.shift-title-summary strong').text();
+        if (!shiftTitle || shiftTitle === '') {
+            // Fallback for edit page
+            const shiftTitleInput = shiftItemElement.find('input[name*="[title]"]');
+            shiftTitle = shiftTitleInput.val() || 'Shift ' + (shiftIndex + 1);
+        }
 
         $.ajax({
             url: lcdEventsAdmin.ajaxurl,
@@ -219,51 +260,76 @@ jQuery(document).ready(function($) {
             data: {
                 action: 'lcd_assign_person_to_shift',
                 nonce: lcdEventsAdmin.assign_person_nonce,
+                person_id: personId,
                 event_id: eventId,
                 shift_index: shiftIndex,
-                shift_title: shiftTitle, 
-                person_id: personId,
+                shift_title: shiftTitle,
                 assignment_notes: assignmentNotes
             },
-            dataType: 'json',
             success: function(response) {
-                if (response.success && response.data && response.data.new_signup_html) {
+                if (response.success) {
+                    // Add the new signup to the list
                     const signupsList = shiftItemElement.find('.signups-list');
-                    if(signupsList.length === 0){
-                        shiftItemElement.find('.assign-volunteer-section').before('<div class="shift-signups"><h5><span class="dashicons dashicons-groups"></span> ' + lcdEventsAdmin.text.registered_volunteers + ' <span class="signups-count">(0)</span></h5><div class="signups-list"></div></div>');
+                    if (signupsList.length === 0) {
+                        // Create signups section if it doesn't exist
+                        const registeredVolunteersText = lcdEventsAdmin.text.registered_volunteers || 'Registered Volunteers:';
+                        const signupsHtml = `
+                            <div class="shift-signups">
+                                <h5>
+                                    <span class="dashicons dashicons-groups"></span>
+                                    ${registeredVolunteersText}
+                                    <span class="signups-count">(1)</span>
+                                </h5>
+                                <div class="signups-list">
+                                    ${response.data.new_signup_html}
+                                </div>
+                            </div>
+                        `;
+                        // Insert after description if it exists, otherwise at the beginning of shift-details
+                        const insertAfter = shiftItemElement.find('.shift-description');
+                        if (insertAfter.length > 0) {
+                            insertAfter.after(signupsHtml);
+                        } else {
+                            shiftItemElement.find('.shift-details').prepend(signupsHtml);
+                        }
+                    } else {
+                        signupsList.append(response.data.new_signup_html);
+                        // Update count
+                        const count = signupsList.children().length;
+                        signupsList.closest('.shift-signups').find('.signups-count').text(`(${count})`);
                     }
-                    shiftItemElement.find('.signups-list').append(response.data.new_signup_html);
-                    
-                    notesTextarea.val('');
-                    
-                    const countSpan = shiftItemElement.find('.shift-signups h5 .signups-count');
-                    const currentCount = parseInt(countSpan.text().replace(/[^0-9]/g, '')) || 0;
-                    countSpan.text('(' + (currentCount + 1) + ')');
-                    updateShiftSummaries();
 
+                    // Clear the select and notes
+                    shiftItemElement.find('.lcd-person-search-select').val(null).trigger('change');
+                    shiftItemElement.find('.shift-assignment-notes').val('');
+
+                    // Update the summary count
+                    updateShiftSummaryCount(shiftItemElement);
+                    
+                    // Update shift summaries if on edit page
+                    if (typeof updateShiftSummaries === 'function') {
+                        updateShiftSummaries();
+                    }
                 } else {
-                    alert(lcdEventsAdmin.text.error_assigning + ' ' + (response.data && response.data.message ? response.data.message : '(No specific error given)'));
+                    alert(lcdEventsAdmin.text.error_assigning);
                 }
             },
-            error: function(jqXHR, textStatus, errorThrown) {
-                alert(lcdEventsAdmin.text.error_assigning + ' (AJAX Error: ' + textStatus + ' - ' + errorThrown + ')');
+            error: function() {
+                alert(lcdEventsAdmin.text.error_assigning);
             }
         });
     }
 
+    // Unassign person from shift
     $(document).on('click', '.unassign-volunteer', function() {
         if (!confirm(lcdEventsAdmin.text.confirm_unassign)) {
             return;
         }
-        const $button = $(this);
-        const $signupItem = $button.closest('.signup-item-compact');
-        const signupId = $signupItem.data('signup-id');
-        const shiftItemElement = $button.closest('.volunteer-shift-item');
 
-        if (!signupId) {
-            alert('Error: Could not find signup ID to remove.');
-            return;
-        }
+        const button = $(this);
+        const signupItem = button.closest('.signup-item-compact');
+        const signupId = signupItem.data('signup-id');
+        const shiftItem = button.closest('.volunteer-shift-item');
 
         $.ajax({
             url: lcdEventsAdmin.ajaxurl,
@@ -273,25 +339,30 @@ jQuery(document).ready(function($) {
                 nonce: lcdEventsAdmin.unassign_person_nonce,
                 signup_id: signupId
             },
-            dataType: 'json',
             success: function(response) {
                 if (response.success) {
-                    $signupItem.slideUp(200, function() { 
-                        $(this).remove(); 
-                        const countSpan = shiftItemElement.find('.shift-signups h5 .signups-count');
-                        const currentCount = parseInt(countSpan.text().replace(/[^0-9]/g, '')) || 0;
-                        countSpan.text('(' + Math.max(0, currentCount - 1) + ')');
-                        if (Math.max(0, currentCount - 1) === 0 && shiftItemElement.find('.signups-list .signup-item-compact').length === 0) {
-                            shiftItemElement.find('.shift-signups').slideUp(200, function() { $(this).remove(); });
+                    signupItem.fadeOut(200, function() {
+                        const signupsList = $(this).closest('.signups-list');
+                        $(this).remove();
+                        
+                        // Update count in header
+                        const remainingSignups = signupsList.children().length;
+                        signupsList.closest('.shift-signups').find('.signups-count').text(`(${remainingSignups})`);
+                        
+                        // If no more signups, remove the entire signups section
+                        if (remainingSignups === 0) {
+                            signupsList.closest('.shift-signups').remove();
                         }
-                        updateShiftSummaries();
+
+                        // Update the summary count
+                        updateShiftSummaryCount(shiftItem);
                     });
                 } else {
-                    alert(lcdEventsAdmin.text.error_unassigning + ' ' + (response.data && response.data.message ? response.data.message : '(No specific error given)'));
+                    alert(lcdEventsAdmin.text.error_unassigning);
                 }
             },
-            error: function(jqXHR, textStatus, errorThrown) {
-                 alert(lcdEventsAdmin.text.error_unassigning + ' (AJAX Error: ' + textStatus + ' - ' + errorThrown + ')');
+            error: function() {
+                alert(lcdEventsAdmin.text.error_unassigning);
             }
         });
     });
@@ -300,46 +371,27 @@ jQuery(document).ready(function($) {
     
     // Inline notes editing functionality
     $(document).on('click', '.edit-notes', function() {
-        const $button = $(this);
-        const $notesContainer = $button.closest('.signup-notes');
-        const $display = $notesContainer.find('.signup-notes-display');
-        const $edit = $notesContainer.find('.signup-notes-edit');
-        
-        $display.hide();
-        $edit.show();
-        $edit.find('.notes-edit-field').focus();
+        const notesDisplay = $(this).closest('.signup-notes-display');
+        const notesEdit = notesDisplay.siblings('.signup-notes-edit');
+        notesDisplay.hide();
+        notesEdit.show().find('textarea').focus();
     });
     
     $(document).on('click', '.cancel-notes', function() {
-        const $button = $(this);
-        const $notesContainer = $button.closest('.signup-notes');
-        const $display = $notesContainer.find('.signup-notes-display');
-        const $edit = $notesContainer.find('.signup-notes-edit');
-        const $textarea = $edit.find('.notes-edit-field');
-        
-        const originalNotes = $display.find('.notes-text').hasClass('no-notes') ? '' : $display.find('.notes-text').text();
-        $textarea.val(originalNotes);
-        
-        $edit.hide();
-        $display.show();
+        const notesEdit = $(this).closest('.signup-notes-edit');
+        const notesDisplay = notesEdit.siblings('.signup-notes-display');
+        notesEdit.hide();
+        notesDisplay.show();
     });
     
     $(document).on('click', '.save-notes', function() {
-        const $button = $(this);
-        const $notesContainer = $button.closest('.signup-notes');
-        const $signupItem = $button.closest('.signup-item-compact');
-        const signupId = $signupItem.data('signup-id');
-        const $textarea = $notesContainer.find('.notes-edit-field');
-        const newNotes = $textarea.val().trim();
-        
-        if (!signupId) {
-            alert('Error: Could not find signup ID to update notes.');
-            return;
-        }
-        
-        $button.prop('disabled', true);
-        $notesContainer.find('.cancel-notes').prop('disabled', true);
-        
+        const button = $(this);
+        const notesEdit = button.closest('.signup-notes-edit');
+        const notesDisplay = notesEdit.siblings('.signup-notes-display');
+        const signupItem = button.closest('.signup-item-compact');
+        const signupId = signupItem.data('signup-id');
+        const newNotes = notesEdit.find('textarea').val();
+
         $.ajax({
             url: lcdEventsAdmin.ajaxurl,
             type: 'POST',
@@ -349,71 +401,34 @@ jQuery(document).ready(function($) {
                 signup_id: signupId,
                 notes: newNotes
             },
-            dataType: 'json',
             success: function(response) {
                 if (response.success) {
-                    const $display = $notesContainer.find('.signup-notes-display');
-                    const $edit = $notesContainer.find('.signup-notes-edit');
-                    const $notesText = $display.find('.notes-text');
-                    
+                    const notesText = notesDisplay.find('.notes-text');
                     if (newNotes) {
-                        $notesText.removeClass('no-notes').text(newNotes);
-                        $display.find('.edit-notes').attr('title', lcdEventsAdmin.text.edit_notes || 'Edit notes');
+                        notesText.text(newNotes).removeClass('no-notes');
                     } else {
-                        $notesText.addClass('no-notes').text(lcdEventsAdmin.text.no_notes || 'No notes');
-                        $display.find('.edit-notes').attr('title', lcdEventsAdmin.text.add_notes || 'Add notes');
+                        notesText.text(lcdEventsAdmin.text.no_notes).addClass('no-notes');
                     }
-                    
-                    $edit.hide();
-                    $display.show();
+                    notesEdit.hide();
+                    notesDisplay.show();
                 } else {
-                    alert(lcdEventsAdmin.text.error_editing_notes + ' ' + (response.data && response.data.message ? response.data.message : ''));
+                    alert(lcdEventsAdmin.text.error_editing_notes);
                 }
             },
-            error: function(jqXHR, textStatus, errorThrown) {
-                alert(lcdEventsAdmin.text.error_editing_notes + ' (AJAX Error: ' + textStatus + ' - ' + errorThrown + ')');
-            },
-            complete: function() {
-                $button.prop('disabled', false);
-                $notesContainer.find('.cancel-notes').prop('disabled', false);
+            error: function() {
+                alert(lcdEventsAdmin.text.error_editing_notes);
             }
         });
     });
 
-    // Additional Buttons Management
-    let buttonIndex = $('.additional-button-item').length;
-    
-    // Add new button
-    $('#add-additional-button').on('click', function() {
-        const template = $('#additional-button-template').html();
-        const html = template.replace(/__INDEX__/g, buttonIndex);
-        
-        const newButton = $(html);
-        $('#additional-buttons-container').append(newButton);
-        
-        buttonIndex++;
-        
-        // Focus on the new button's text field
-        newButton.find('input[type="text"]').focus();
-    });
-    
-    // Remove button
-    $(document).on('click', '.remove-additional-button', function() {
-        const buttonItem = $(this).closest('.additional-button-item');
-        buttonItem.slideUp(200, function() {
-            $(this).remove();
-            updateButtonNumbers();
-        });
-    });
-    
-    // Update button numbers
-    function updateButtonNumbers() {
-        $('.additional-button-item').each(function(index) {
-            $(this).find('.button-number').text(index + 1);
-            $(this).find('input').each(function() {
-                const newName = $(this).attr('name').replace(/\[\d+\]/, '[' + index + ']');
-                $(this).attr('name', newName);
-            });
-        });
+    // Helper function to update shift summary count
+    function updateShiftSummaryCount(shiftItem) {
+        const signupsList = shiftItem.find('.signups-list');
+        const count = signupsList.children().length;
+        const maxVolunteers = shiftItem.find('.shift-signups-summary').text().split('/')[1]?.trim() || '∞';
+        const summaryText = maxVolunteers === '∞' 
+            ? `${count} volunteers`
+            : `${count} / ${maxVolunteers} volunteers`;
+        shiftItem.find('.shift-signups-summary').text(summaryText);
     }
 }); 
