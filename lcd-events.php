@@ -280,8 +280,27 @@ function lcd_volunteer_shifts_callback($post) {
     foreach ($all_signups as $signup) {
         $signups_by_shift[$signup->shift_index][] = $signup;
     }
+    
+    // Show export options if there are signups
+    $total_signups = count($all_signups);
     ?>
     <div class="lcd-volunteer-shifts-meta">
+        <?php if ($total_signups > 0) : ?>
+            <div class="volunteer-export-section">
+                <h4><?php _e('Export Volunteer List', 'lcd-events'); ?></h4>
+                <p><?php printf(__('Total volunteers: %d', 'lcd-events'), $total_signups); ?></p>
+                <div class="export-buttons">
+                    <button type="button" class="button button-secondary export-volunteers-csv" data-event-id="<?php echo $post->ID; ?>">
+                        <span class="dashicons dashicons-media-spreadsheet"></span>
+                        <?php _e('Export to CSV', 'lcd-events'); ?>
+                    </button>
+                    <button type="button" class="button button-secondary export-volunteers-pdf" data-event-id="<?php echo $post->ID; ?>">
+                        <span class="dashicons dashicons-pdf"></span>
+                        <?php _e('Export to PDF', 'lcd-events'); ?>
+                    </button>
+                </div>
+            </div>
+        <?php endif; ?>
         <div id="volunteer-shifts-container">
             <?php if (!empty($volunteer_shifts)) : ?>
                 <?php foreach ($volunteer_shifts as $index => $shift) : ?>
@@ -423,20 +442,18 @@ function lcd_volunteer_shifts_callback($post) {
                                                 }
                                             }
                                             ?>
-                                            <div class="signup-item-compact" <?php echo $person_id_attr; ?> <?php echo $signup_id_attr; ?>>
-                                                <div class="signup-actions">
-                                                     <button type="button" class="button-link button-link-delete unassign-volunteer" title="<?php esc_attr_e('Remove from shift', 'lcd-events'); ?>">
-                                                        <span class="dashicons dashicons-no-alt"></span>
-                                                    </button>
-                                                </div>
-                                                <div class="signup-primary">
-                                                    <strong><?php echo $person_name; ?></strong>
-                                                    <span class="signup-contact">
-                                                        <?php echo $person_email; ?>
-                                                        <?php if (!empty($person_phone)) : ?>
-                                                            • <?php echo $person_phone; ?>
-                                                        <?php endif; ?>
-                                                    </span>
+                                            <div class="signup-item-compact status-<?php echo esc_attr($signup->status); ?>" <?php echo $person_id_attr; ?> <?php echo $signup_id_attr; ?>>
+                                                <div class="signup-header">
+                                                    <div class="signup-primary">
+                                                        <strong><?php echo $person_name; ?></strong>
+                                                        <span class="signup-contact">
+                                                            <?php echo $person_email; ?>
+                                                            <?php if (!empty($person_phone)) : ?>
+                                                                • <?php echo $person_phone; ?>
+                                                            <?php endif; ?>
+                                                        </span>
+                                                    </div>
+                                                    <div class="signup-date"><?php echo date_i18n('M j, Y \a\t g:i A', strtotime($signup->signup_date)); ?></div>
                                                 </div>
                                                 <?php /* Show notes for any signup that has them - both guest signups and assignment notes */
                                                 if (!empty($signup->volunteer_notes)) : ?>
@@ -472,7 +489,24 @@ function lcd_volunteer_shifts_callback($post) {
                                                         </div>
                                                     </div>
                                                 <?php endif; ?>
-                                                <div class="signup-date"><?php echo date_i18n('M j, Y \a\t g:i A', strtotime($signup->signup_date)); ?></div>
+                                                <div class="signup-status-section">
+                                                    <div class="signup-status-display">
+                                                        <span class="signup-status-label"><?php _e('Status:', 'lcd-events'); ?></span>
+                                                        <span class="signup-status-value <?php echo esc_attr($signup->status); ?>">
+                                                            <?php echo ucfirst($signup->status); ?>
+                                                        </span>
+                                                    </div>
+                                                    <div class="signup-actions">
+                                                        <button type="button" class="button button-small toggle-confirmed <?php echo esc_attr($signup->status); ?>" 
+                                                                data-confirmed="<?php echo esc_attr($signup->status === 'confirmed' ? '1' : '0'); ?>"
+                                                                title="<?php echo esc_attr($signup->status === 'confirmed' ? __('Mark as unconfirmed', 'lcd-events') : __('Mark as confirmed', 'lcd-events')); ?>">
+                                                            <?php echo $signup->status === 'confirmed' ? __('Unconfirm', 'lcd-events') : __('Confirm', 'lcd-events'); ?>
+                                                        </button>
+                                                        <button type="button" class="button-link button-link-delete unassign-volunteer" title="<?php esc_attr_e('Remove from shift', 'lcd-events'); ?>">
+                                                            <span class="dashicons dashicons-no-alt"></span>
+                                                        </button>
+                                                    </div>
+                                                </div>
                                             </div>
                                         <?php endforeach; ?>
                                     </div>
@@ -1172,6 +1206,9 @@ function lcd_events_admin_scripts($hook) {
             'assign_person_nonce' => wp_create_nonce('lcd_event_assign_person_to_shift'),
             'unassign_person_nonce' => wp_create_nonce('lcd_event_unassign_person_from_shift'),
             'edit_notes_nonce' => wp_create_nonce('lcd_event_edit_volunteer_notes'),
+            'toggle_confirmed_nonce' => wp_create_nonce('lcd_event_toggle_volunteer_confirmed'),
+            'export_csv_nonce' => wp_create_nonce('lcd_export_volunteers_csv'),
+            'export_pdf_nonce' => wp_create_nonce('lcd_export_volunteers_pdf'),
             'text' => [
                 'select_upload_poster' => __('Select or Upload Event Poster', 'lcd-events'),
                 'use_image' => __('Use this image', 'lcd-events'),
@@ -1186,11 +1223,14 @@ function lcd_events_admin_scripts($hook) {
                 'error_assigning' => __('Could not assign volunteer. Please try again.', 'lcd-events'),
                 'error_unassigning' => __('Could not remove volunteer. Please try again.', 'lcd-events'),
                 'error_editing_notes' => __('Could not save notes. Please try again.', 'lcd-events'),
+                'error_toggle_confirmed' => __('Could not update confirmation status. Please try again.', 'lcd-events'),
                 'searching' => __('Searching...', 'lcd-events'),
                 'no_results' => __('No people found matching your search.', 'lcd-events'),
+                'error_loading' => __('Could not load search results.', 'lcd-events'),
                 'edit_notes' => __('Edit notes', 'lcd-events'),
                 'add_notes' => __('Add notes', 'lcd-events'),
                 'no_notes' => __('No notes', 'lcd-events'),
+                'export_error' => __('Error exporting volunteer list. Please try again.', 'lcd-events'),
             ]
         ]);
 
@@ -1201,6 +1241,7 @@ function lcd_events_admin_scripts($hook) {
             'assign_person_nonce' => wp_create_nonce('lcd_event_assign_person_to_shift'),
             'unassign_person_nonce' => wp_create_nonce('lcd_event_unassign_person_from_shift'),
             'edit_notes_nonce' => wp_create_nonce('lcd_event_edit_volunteer_notes'),
+            'toggle_confirmed_nonce' => wp_create_nonce('lcd_event_toggle_volunteer_confirmed'),
             'text' => [
                 'confirm_unassign' => __('Are you sure you want to remove this volunteer from this shift?', 'lcd-events'),
                 'error_assigning' => __('Could not assign volunteer. Please try again.', 'lcd-events'),
@@ -1300,7 +1341,11 @@ function lcd_ajax_search_people_for_shifts() {
 // AJAX handler for assigning a person to a shift
 add_action('wp_ajax_lcd_assign_person_to_shift', 'lcd_ajax_assign_person_to_shift');
 function lcd_ajax_assign_person_to_shift() {
-    check_ajax_referer('lcd_event_assign_person_to_shift', 'nonce');
+    // Verify nonce
+    if (!isset($_POST['nonce']) || !wp_verify_nonce($_POST['nonce'], 'lcd_event_assign_person_to_shift')) {
+        wp_send_json_error(['message' => __('Security check failed.', 'lcd-events')], 403);
+        return;
+    }
 
     if (!current_user_can('edit_posts')) {
         wp_send_json_error(['message' => __('Permission denied.', 'lcd-events')], 403);
@@ -1330,8 +1375,13 @@ function lcd_ajax_assign_person_to_shift() {
     $user_id = get_post_meta($person_id, '_lcd_person_user_id', true); // Check if person is linked to a WP user
 
     if (empty($volunteer_email)) {
-        // Email is crucial. Though lcd_person might not enforce it, we should check.
-        wp_send_json_error(['message' => __('Selected person does not have an email address in their profile.', 'lcd-events')], 400);
+        // Provide a more helpful error message that includes the person's name
+        wp_send_json_error([
+            'message' => sprintf(
+                __('%s does not have an email address in their profile. Please add an email address to their profile before assigning them to a volunteer shift.', 'lcd-events'),
+                esc_html($volunteer_name)
+            )
+        ], 400);
         return;
     }
     
@@ -1356,17 +1406,14 @@ function lcd_ajax_assign_person_to_shift() {
         'volunteer_email' => $volunteer_email,
         'volunteer_phone' => $volunteer_phone,
         'volunteer_notes' => $assignment_notes, // Save the assignment notes
-        'person_id' => $person_id, // Link to the lcd_person post
         'user_id' => $user_id ? intval($user_id) : null,
         'signup_date' => current_time('mysql'),
         'status' => 'confirmed',
+        'person_id' => $person_id, // Link to the lcd_person post
     ];
 
-    $format = ['%d', '%d', '%s', '%s', '%s', '%s', '%s', '%d', '%d', '%s', '%s'];
-    if (is_null($signup_data['user_id'])) {
-        $format[8] = null; // Allow NULL for user_id if not present
-    }
-
+    $format = ['%d', '%d', '%s', '%s', '%s', '%s', '%s', '%d', '%s', '%s', '%d'];
+    
     $inserted = $wpdb->insert($table_name, $signup_data, $format);
 
     if ($inserted) {
@@ -1374,20 +1421,18 @@ function lcd_ajax_assign_person_to_shift() {
         // Prepare HTML for the new signup item to send back to JS
         ob_start();
         ?>
-        <div class="signup-item-compact" data-person-id="<?php echo esc_attr($person_id); ?>" data-signup-id="<?php echo esc_attr($signup_id); ?>">
-            <div class="signup-actions">
-                <button type="button" class="button-link button-link-delete unassign-volunteer" title="<?php esc_attr_e('Remove from shift', 'lcd-events'); ?>">
-                    <span class="dashicons dashicons-no-alt"></span>
-                </button>
-            </div>
-            <div class="signup-primary">
-                <strong><?php echo esc_html($volunteer_name); ?></strong>
-                <span class="signup-contact">
-                    <?php echo esc_html($volunteer_email); ?>
-                    <?php if (!empty($volunteer_phone)) : ?>
-                        • <?php echo esc_html($volunteer_phone); ?>
-                    <?php endif; ?>
-                </span>
+        <div class="signup-item-compact status-confirmed" data-person-id="<?php echo esc_attr($person_id); ?>" data-signup-id="<?php echo esc_attr($signup_id); ?>">
+            <div class="signup-header">
+                <div class="signup-primary">
+                    <strong><?php echo esc_html($volunteer_name); ?></strong>
+                    <span class="signup-contact">
+                        <?php echo esc_html($volunteer_email); ?>
+                        <?php if (!empty($volunteer_phone)) : ?>
+                            • <?php echo esc_html($volunteer_phone); ?>
+                        <?php endif; ?>
+                    </span>
+                </div>
+                <div class="signup-date"><?php echo date_i18n('M j, Y \a\t g:i A', strtotime(current_time('mysql'))); ?></div>
             </div>
             <?php if (!empty($assignment_notes)) : ?>
                 <div class="signup-notes">
@@ -1422,7 +1467,24 @@ function lcd_ajax_assign_person_to_shift() {
                     </div>
                 </div>
             <?php endif; ?>
-            <div class="signup-date"><?php echo date_i18n('M j, Y \a\t g:i A', strtotime(current_time('mysql'))); ?></div>
+            <div class="signup-status-section">
+                <div class="signup-status-display">
+                    <span class="signup-status-label"><?php _e('Status:', 'lcd-events'); ?></span>
+                    <span class="signup-status-value confirmed">
+                        <?php _e('Confirmed', 'lcd-events'); ?>
+                    </span>
+                </div>
+                <div class="signup-actions">
+                    <button type="button" class="button button-small toggle-confirmed confirmed" 
+                            data-confirmed="1"
+                            title="<?php esc_attr_e('Mark as unconfirmed', 'lcd-events'); ?>">
+                        <?php _e('Unconfirm', 'lcd-events'); ?>
+                    </button>
+                    <button type="button" class="button-link button-link-delete unassign-volunteer" title="<?php esc_attr_e('Remove from shift', 'lcd-events'); ?>">
+                        <span class="dashicons dashicons-no-alt"></span>
+                    </button>
+                </div>
+            </div>
         </div>
         <?php
         $new_signup_html = ob_get_clean();
@@ -1506,6 +1568,462 @@ function lcd_ajax_edit_volunteer_notes() {
     } else {
         wp_send_json_error(['message' => __('Could not update notes.', 'lcd-events'), 'db_error' => $wpdb->last_error], 500);
     }
+}
+
+/**
+ * Toggle volunteer confirmation status via AJAX
+ */
+function lcd_ajax_toggle_volunteer_confirmed() {
+    // Verify nonce
+    if (!wp_verify_nonce($_POST['nonce'], 'lcd_event_toggle_volunteer_confirmed')) {
+        wp_die('Security check failed');
+    }
+    
+    // Check user permissions
+    if (!current_user_can('edit_posts')) {
+        wp_die('Insufficient permissions');
+    }
+    
+    $signup_id = intval($_POST['signup_id']);
+    $confirmed = $_POST['confirmed'] === '1' ? 1 : 0;
+    
+    if ($signup_id <= 0) {
+        wp_send_json_error('Invalid signup ID');
+        return;
+    }
+    
+    global $wpdb;
+    $table_name = $wpdb->prefix . 'lcd_volunteer_signups';
+    
+    // Get current signup
+    $signup = $wpdb->get_row($wpdb->prepare(
+        "SELECT * FROM $table_name WHERE id = %d",
+        $signup_id
+    ));
+    
+    if (!$signup) {
+        wp_send_json_error('Signup not found');
+        return;
+    }
+    
+    // Toggle the status
+    $new_status = $confirmed ? 'confirmed' : 'unconfirmed';
+    
+    $updated = $wpdb->update(
+        $table_name,
+        array('status' => $new_status),
+        array('id' => $signup_id),
+        array('%s'),
+        array('%d')
+    );
+    
+    if ($updated === false) {
+        wp_send_json_error('Failed to update confirmation status');
+        return;
+    }
+    
+    wp_send_json_success(array(
+        'signup_id' => $signup_id,
+        'confirmed' => $confirmed,
+        'status' => $new_status,
+        'message' => $confirmed ? __('Volunteer confirmed', 'lcd-events') : __('Volunteer unconfirmed', 'lcd-events')
+    ));
+}
+add_action('wp_ajax_lcd_toggle_volunteer_confirmed', 'lcd_ajax_toggle_volunteer_confirmed');
+
+// AJAX handler for exporting volunteers to CSV
+add_action('wp_ajax_lcd_export_volunteers_csv', 'lcd_ajax_export_volunteers_csv');
+function lcd_ajax_export_volunteers_csv() {
+    if (!current_user_can('edit_posts')) {
+        wp_die(__('Permission denied.', 'lcd-events'));
+        return;
+    }
+
+    $event_id = isset($_GET['event_id']) ? intval($_GET['event_id']) : 0;
+    
+    if (!$event_id) {
+        wp_die(__('Invalid event ID.', 'lcd-events'));
+        return;
+    }
+
+    $event = get_post($event_id);
+    if (!$event || $event->post_type !== 'event') {
+        wp_die(__('Event not found.', 'lcd-events'));
+        return;
+    }
+
+    // Get volunteer shifts and signups
+    $volunteer_shifts = get_post_meta($event_id, '_volunteer_shifts', true);
+    $all_signups = lcd_get_volunteer_signups($event_id);
+    
+    if (empty($all_signups)) {
+        wp_die(__('No volunteers found for this event.', 'lcd-events'));
+        return;
+    }
+
+    // Prepare filename
+    $event_date = get_post_meta($event_id, '_event_date', true);
+    $date_part = $event_date ? date('Y-m-d', strtotime($event_date)) : date('Y-m-d');
+    $filename = sanitize_file_name($event->post_title . '_volunteers_' . $date_part . '.csv');
+
+    // Set headers for CSV download
+    header('Content-Type: text/csv; charset=utf-8');
+    header('Content-Disposition: attachment; filename="' . $filename . '"');
+    header('Pragma: no-cache');
+    header('Expires: 0');
+
+    // Create output handle
+    $output = fopen('php://output', 'w');
+
+    // Add BOM for UTF-8
+    fprintf($output, chr(0xEF).chr(0xBB).chr(0xBF));
+
+    // CSV headers
+    $headers = [
+        __('Volunteer Name', 'lcd-events'),
+        __('Email', 'lcd-events'),
+        __('Phone', 'lcd-events'),
+        __('Shift Title', 'lcd-events'),
+        __('Shift Date', 'lcd-events'),
+        __('Shift Start Time', 'lcd-events'),
+        __('Shift End Time', 'lcd-events'),
+        __('Notes', 'lcd-events'),
+        __('Signup Date', 'lcd-events'),
+        __('Status', 'lcd-events')
+    ];
+    
+    fputcsv($output, $headers);
+
+    // Process each signup
+    foreach ($all_signups as $signup) {
+        // Get shift details
+        $shift = isset($volunteer_shifts[$signup->shift_index]) ? $volunteer_shifts[$signup->shift_index] : null;
+        
+        $volunteer_name = $signup->volunteer_name;
+        $volunteer_email = $signup->volunteer_email;
+        $volunteer_phone = $signup->volunteer_phone;
+        
+        // If linked to an lcd_person, get updated details
+        if ($signup->person_id) {
+            $person_post = get_post($signup->person_id);
+            if ($person_post) {
+                $volunteer_name = $person_post->post_title;
+                $volunteer_email = get_post_meta($signup->person_id, '_lcd_person_email', true) ?: $volunteer_email;
+                $volunteer_phone = get_post_meta($signup->person_id, '_lcd_person_phone', true) ?: $volunteer_phone;
+            }
+        }
+        
+        $shift_date = $shift ? ($shift['date'] ?? '') : '';
+        $shift_start_time = $shift ? ($shift['start_time'] ?? '') : '';
+        $shift_end_time = $shift ? ($shift['end_time'] ?? '') : '';
+        
+        // Format dates and times for CSV
+        $formatted_shift_date = $shift_date ? date_i18n(get_option('date_format'), strtotime($shift_date)) : '';
+        $formatted_start_time = ($shift_date && $shift_start_time) ? date_i18n(get_option('time_format'), strtotime($shift_date . ' ' . $shift_start_time)) : '';
+        $formatted_end_time = ($shift_date && $shift_end_time) ? date_i18n(get_option('time_format'), strtotime($shift_date . ' ' . $shift_end_time)) : '';
+        $formatted_signup_date = date_i18n(get_option('date_format') . ' ' . get_option('time_format'), strtotime($signup->signup_date));
+
+        $row = [
+            $volunteer_name,
+            $volunteer_email,
+            $volunteer_phone,
+            $signup->shift_title,
+            $formatted_shift_date,
+            $formatted_start_time,
+            $formatted_end_time,
+            $signup->volunteer_notes ?? '',
+            $formatted_signup_date,
+            $signup->status
+        ];
+        
+        fputcsv($output, $row);
+    }
+
+    fclose($output);
+    exit;
+}
+
+// AJAX handler for exporting volunteers to PDF
+add_action('wp_ajax_lcd_export_volunteers_pdf', 'lcd_ajax_export_volunteers_pdf');
+function lcd_ajax_export_volunteers_pdf() {
+    if (!current_user_can('edit_posts')) {
+        wp_die(__('Permission denied.', 'lcd-events'));
+        return;
+    }
+
+    $event_id = isset($_GET['event_id']) ? intval($_GET['event_id']) : 0;
+    
+    if (!$event_id) {
+        wp_die(__('Invalid event ID.', 'lcd-events'));
+        return;
+    }
+
+    $event = get_post($event_id);
+    if (!$event || $event->post_type !== 'event') {
+        wp_die(__('Event not found.', 'lcd-events'));
+        return;
+    }
+
+    // Get event details
+    $event_date = get_post_meta($event_id, '_event_date', true);
+    $event_time = get_post_meta($event_id, '_event_time', true);
+    $event_location = get_post_meta($event_id, '_event_location', true);
+    
+    // Get volunteer shifts and signups
+    $volunteer_shifts = get_post_meta($event_id, '_volunteer_shifts', true);
+    $all_signups = lcd_get_volunteer_signups($event_id);
+    
+    if (empty($all_signups)) {
+        wp_die(__('No volunteers found for this event.', 'lcd-events'));
+        return;
+    }
+
+    // Group signups by shift
+    $signups_by_shift = array();
+    foreach ($all_signups as $signup) {
+        $signups_by_shift[$signup->shift_index][] = $signup;
+    }
+
+    // Prepare filename
+    $date_part = $event_date ? date('Y-m-d', strtotime($event_date)) : date('Y-m-d');
+    $filename = sanitize_file_name($event->post_title . '_volunteers_' . $date_part . '.pdf');
+
+    // Create PDF content using basic HTML
+    ob_start();
+    ?>
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <meta charset="UTF-8">
+        <title><?php echo esc_html($event->post_title); ?> - <?php _e('Volunteer List', 'lcd-events'); ?></title>
+        <style>
+            body { font-family: Arial, sans-serif; font-size: 12px; line-height: 1.4; margin: 20px; }
+            .header { text-align: center; margin-bottom: 30px; border-bottom: 2px solid #333; padding-bottom: 15px; }
+            .event-title { font-size: 18px; font-weight: bold; margin-bottom: 5px; }
+            .event-details { font-size: 14px; color: #666; }
+            .shift-section { margin-bottom: 30px; page-break-inside: avoid; }
+            .shift-header { background: #f5f5f5; padding: 12px; margin-bottom: 15px; border: 1px solid #ddd; border-radius: 4px; }
+            .shift-title { font-size: 16px; font-weight: bold; margin-bottom: 8px; color: #333; }
+            .shift-meta { font-size: 12px; color: #666; display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 8px; }
+            .shift-meta-item { white-space: nowrap; }
+            .shift-status-summary { margin-top: 8px; font-size: 11px; color: #555; }
+            .volunteers-table { width: 100%; border-collapse: collapse; margin-bottom: 15px; font-size: 11px; }
+            .volunteers-table th, .volunteers-table td { border: 1px solid #ddd; padding: 6px; text-align: left; vertical-align: top; }
+            .volunteers-table th { background: #f9f9f9; font-weight: bold; color: #333; }
+            .name-col { width: 18%; }
+            .email-col { width: 22%; }
+            .phone-col { width: 15%; }
+            .status-col { width: 12%; text-align: center; }
+            .notes-col { width: 20%; word-wrap: break-word; }
+            .signup-date-col { width: 13%; }
+            .status-confirmed { color: #0d7377; font-weight: bold; }
+            .status-unconfirmed { color: #dc3545; font-weight: bold; }
+            .summary { margin-top: 30px; border-top: 2px solid #333; padding-top: 15px; }
+            .summary-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; margin-bottom: 15px; }
+            .summary-item { text-align: center; }
+            .summary-number { font-size: 18px; font-weight: bold; color: #333; }
+            .summary-label { font-size: 12px; color: #666; }
+            .generation-info { font-size: 10px; color: #666; text-align: center; margin-top: 15px; }
+        </style>
+    </head>
+    <body>
+        <div class="header">
+            <div class="event-title"><?php echo esc_html($event->post_title); ?></div>
+            <div class="event-details">
+                <?php if ($event_date) : ?>
+                    <strong><?php _e('Date:', 'lcd-events'); ?></strong> <?php echo date_i18n(get_option('date_format'), strtotime($event_date)); ?>
+                <?php endif; ?>
+                <?php if ($event_time) : ?>
+                    | <strong><?php _e('Time:', 'lcd-events'); ?></strong> <?php echo date_i18n(get_option('time_format'), strtotime($event_date . ' ' . $event_time)); ?>
+                <?php endif; ?>
+                <?php if ($event_location) : ?>
+                    | <strong><?php _e('Location:', 'lcd-events'); ?></strong> <?php echo esc_html($event_location); ?>
+                <?php endif; ?>
+            </div>
+        </div>
+
+        <?php 
+        $total_confirmed = 0;
+        $total_unconfirmed = 0;
+        
+        foreach ($volunteer_shifts as $shift_index => $shift) : 
+            if (empty($signups_by_shift[$shift_index])) continue;
+            $shift_signups = $signups_by_shift[$shift_index];
+            
+            // Count status for this shift
+            $shift_confirmed = 0;
+            $shift_unconfirmed = 0;
+            foreach ($shift_signups as $signup) {
+                if ($signup->status === 'confirmed') {
+                    $shift_confirmed++;
+                    $total_confirmed++;
+                } else {
+                    $shift_unconfirmed++;
+                    $total_unconfirmed++;
+                }
+            }
+            
+            $shift_time_string = '';
+            if (!empty($shift['start_time'])) {
+                $shift_time_string = date_i18n(get_option('time_format'), strtotime($shift['date'] . ' ' . $shift['start_time']));
+                if (!empty($shift['end_time'])) {
+                    $shift_time_string .= ' - ' . date_i18n(get_option('time_format'), strtotime($shift['date'] . ' ' . $shift['end_time']));
+                }
+            }
+            ?>
+            
+            <div class="shift-section">
+                <div class="shift-header">
+                    <div class="shift-title"><?php echo esc_html($shift['title']); ?></div>
+                    <div class="shift-meta">
+                        <?php if (!empty($shift['date'])) : ?>
+                            <div class="shift-meta-item">
+                                <strong><?php _e('Date:', 'lcd-events'); ?></strong> <?php echo date_i18n(get_option('date_format'), strtotime($shift['date'])); ?>
+                            </div>
+                        <?php endif; ?>
+                        <?php if ($shift_time_string) : ?>
+                            <div class="shift-meta-item">
+                                <strong><?php _e('Time:', 'lcd-events'); ?></strong> <?php echo esc_html($shift_time_string); ?>
+                            </div>
+                        <?php endif; ?>
+                        <?php if (!empty($shift['max_volunteers'])) : ?>
+                            <div class="shift-meta-item">
+                                <strong><?php _e('Max Volunteers:', 'lcd-events'); ?></strong> <?php echo esc_html($shift['max_volunteers']); ?>
+                            </div>
+                        <?php endif; ?>
+                    </div>
+                    <?php if (!empty($shift['description'])) : ?>
+                        <div class="shift-meta-item" style="margin-top: 8px;">
+                            <strong><?php _e('Description:', 'lcd-events'); ?></strong> <?php echo esc_html($shift['description']); ?>
+                        </div>
+                    <?php endif; ?>
+                    <div class="shift-status-summary">
+                        <strong><?php _e('Volunteers:', 'lcd-events'); ?></strong> 
+                        <?php printf(__('%d total', 'lcd-events'), count($shift_signups)); ?>
+                        <?php if ($shift_confirmed > 0) : ?>
+                            | <span class="status-confirmed"><?php printf(__('%d confirmed', 'lcd-events'), $shift_confirmed); ?></span>
+                        <?php endif; ?>
+                        <?php if ($shift_unconfirmed > 0) : ?>
+                            | <span class="status-unconfirmed"><?php printf(__('%d unconfirmed', 'lcd-events'), $shift_unconfirmed); ?></span>
+                        <?php endif; ?>
+                    </div>
+                </div>
+
+                <table class="volunteers-table">
+                    <thead>
+                        <tr>
+                            <th class="name-col"><?php _e('Name', 'lcd-events'); ?></th>
+                            <th class="email-col"><?php _e('Email', 'lcd-events'); ?></th>
+                            <th class="phone-col"><?php _e('Phone', 'lcd-events'); ?></th>
+                            <th class="status-col"><?php _e('Status', 'lcd-events'); ?></th>
+                            <th class="notes-col"><?php _e('Notes', 'lcd-events'); ?></th>
+                            <th class="signup-date-col"><?php _e('Signup Date', 'lcd-events'); ?></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <?php foreach ($shift_signups as $signup) : 
+                            $volunteer_name = $signup->volunteer_name;
+                            $volunteer_email = $signup->volunteer_email;
+                            $volunteer_phone = $signup->volunteer_phone;
+                            
+                            // If linked to an lcd_person, get updated details
+                            if ($signup->person_id) {
+                                $person_post = get_post($signup->person_id);
+                                if ($person_post) {
+                                    $volunteer_name = $person_post->post_title;
+                                    $volunteer_email = get_post_meta($signup->person_id, '_lcd_person_email', true) ?: $volunteer_email;
+                                    $volunteer_phone = get_post_meta($signup->person_id, '_lcd_person_phone', true) ?: $volunteer_phone;
+                                }
+                            }
+                            
+                            $status_class = $signup->status === 'confirmed' ? 'status-confirmed' : 'status-unconfirmed';
+                            $status_text = $signup->status === 'confirmed' ? __('Confirmed', 'lcd-events') : __('Unconfirmed', 'lcd-events');
+                            ?>
+                            <tr>
+                                <td class="name-col"><?php echo esc_html($volunteer_name); ?></td>
+                                <td class="email-col"><?php echo esc_html($volunteer_email); ?></td>
+                                <td class="phone-col"><?php echo esc_html($volunteer_phone); ?></td>
+                                <td class="status-col"><span class="<?php echo esc_attr($status_class); ?>"><?php echo esc_html($status_text); ?></span></td>
+                                <td class="notes-col"><?php echo esc_html($signup->volunteer_notes ?? ''); ?></td>
+                                <td class="signup-date-col"><?php echo date_i18n(get_option('date_format'), strtotime($signup->signup_date)); ?></td>
+                            </tr>
+                        <?php endforeach; ?>
+                    </tbody>
+                </table>
+            </div>
+        <?php endforeach; ?>
+
+        <div class="summary">
+            <div class="summary-grid">
+                <div class="summary-item">
+                    <div class="summary-number"><?php echo count($all_signups); ?></div>
+                    <div class="summary-label"><?php _e('Total Volunteers', 'lcd-events'); ?></div>
+                </div>
+                <div class="summary-item">
+                    <div class="summary-number" style="color: #0d7377;"><?php echo $total_confirmed; ?></div>
+                    <div class="summary-label"><?php _e('Confirmed', 'lcd-events'); ?></div>
+                </div>
+                <div class="summary-item">
+                    <div class="summary-number" style="color: #dc3545;"><?php echo $total_unconfirmed; ?></div>
+                    <div class="summary-label"><?php _e('Unconfirmed', 'lcd-events'); ?></div>
+                </div>
+                <div class="summary-item">
+                    <div class="summary-number"><?php echo count($volunteer_shifts); ?></div>
+                    <div class="summary-label"><?php _e('Volunteer Shifts', 'lcd-events'); ?></div>
+                </div>
+            </div>
+            <div class="generation-info">
+                <?php printf(__('Generated on %s', 'lcd-events'), date_i18n(get_option('date_format') . ' ' . get_option('time_format'))); ?>
+            </div>
+        </div>
+    </body>
+    </html>
+    <?php
+    $html = ob_get_clean();
+
+    // Check if DomPDF is available (you might want to include it as a dependency)
+    // For now, we'll use a simple HTML to PDF conversion via the browser
+    // In a production environment, you might want to use a proper PDF library
+    
+    // Set headers for PDF download
+    header('Content-Type: application/pdf');
+    header('Content-Disposition: attachment; filename="' . $filename . '"');
+    header('Pragma: no-cache');
+    header('Expires: 0');
+
+    // For basic PDF generation, we'll use wkhtmltopdf if available, or fall back to HTML
+    // This is a simplified approach - in production you might want to use a proper PDF library
+    
+    // Try to use wkhtmltopdf if available
+    $wkhtmltopdf_path = '/usr/bin/wkhtmltopdf'; // Adjust path as needed
+    if (file_exists($wkhtmltopdf_path) && is_executable($wkhtmltopdf_path)) {
+        $temp_html = tempnam(sys_get_temp_dir(), 'lcd_volunteers_') . '.html';
+        $temp_pdf = tempnam(sys_get_temp_dir(), 'lcd_volunteers_') . '.pdf';
+        
+        file_put_contents($temp_html, $html);
+        
+        $command = escapeshellcmd($wkhtmltopdf_path) . ' --page-size A4 --orientation Portrait --margin-top 1cm --margin-right 1cm --margin-bottom 1cm --margin-left 1cm ' . 
+                   escapeshellarg($temp_html) . ' ' . escapeshellarg($temp_pdf);
+        
+        exec($command, $output, $return_var);
+        
+        if ($return_var === 0 && file_exists($temp_pdf)) {
+            readfile($temp_pdf);
+            unlink($temp_html);
+            unlink($temp_pdf);
+            exit;
+        }
+        
+        // Clean up temp files if command failed
+        if (file_exists($temp_html)) unlink($temp_html);
+        if (file_exists($temp_pdf)) unlink($temp_pdf);
+    }
+    
+    // Fallback: serve as HTML with PDF headers (browser will handle PDF conversion)
+    header('Content-Type: text/html; charset=utf-8');
+    header('Content-Disposition: inline; filename="' . str_replace('.pdf', '.html', $filename) . '"');
+    echo $html;
+    exit;
 }
 
 /**
@@ -1619,6 +2137,26 @@ function lcd_volunteer_shifts_page_callback() {
                             <span class="event-date"><?php echo esc_html($formatted_date); ?></span>
                         </h2>
                         
+                        <?php 
+                        $total_event_signups = count($all_signups);
+                        if ($total_event_signups > 0) : ?>
+                            <div class="event-export-header">
+                                <div class="event-export-info">
+                                    <span><?php printf(__('Total volunteers: %d', 'lcd-events'), $total_event_signups); ?></span>
+                                </div>
+                                <div class="event-export-buttons">
+                                    <button type="button" class="button button-secondary export-volunteers-csv" data-event-id="<?php echo $event->ID; ?>">
+                                        <span class="dashicons dashicons-media-spreadsheet"></span>
+                                        <?php _e('Export CSV', 'lcd-events'); ?>
+                                    </button>
+                                    <button type="button" class="button button-secondary export-volunteers-pdf" data-event-id="<?php echo $event->ID; ?>">
+                                        <span class="dashicons dashicons-pdf"></span>
+                                        <?php _e('Export PDF', 'lcd-events'); ?>
+                                    </button>
+                                </div>
+                            </div>
+                        <?php endif; ?>
+                        
                         <div id="volunteer-shifts-container-<?php echo $event->ID; ?>" class="volunteer-shifts-container">
                             <?php foreach ($shifts as $index => $shift) : 
                                 $shift_signups = $signups_by_shift[$index] ?? array();
@@ -1724,20 +2262,18 @@ function lcd_volunteer_shifts_page_callback() {
                                                             }
                                                         }
                                                         ?>
-                                                        <div class="signup-item-compact" <?php echo $person_id_attr; ?> <?php echo $signup_id_attr; ?>>
-                                                            <div class="signup-actions">
-                                                                <button type="button" class="button-link button-link-delete unassign-volunteer" title="<?php esc_attr_e('Remove from shift', 'lcd-events'); ?>">
-                                                                    <span class="dashicons dashicons-no-alt"></span>
-                                                                </button>
-                                                            </div>
-                                                            <div class="signup-primary">
-                                                                <strong><?php echo $person_name; ?></strong>
-                                                                <span class="signup-contact">
-                                                                    <?php echo $person_email; ?>
-                                                                    <?php if (!empty($person_phone)) : ?>
-                                                                        • <?php echo $person_phone; ?>
-                                                                    <?php endif; ?>
-                                                                </span>
+                                                        <div class="signup-item-compact status-<?php echo esc_attr($signup->status); ?>" <?php echo $person_id_attr; ?> <?php echo $signup_id_attr; ?>>
+                                                            <div class="signup-header">
+                                                                <div class="signup-primary">
+                                                                    <strong><?php echo $person_name; ?></strong>
+                                                                    <span class="signup-contact">
+                                                                        <?php echo $person_email; ?>
+                                                                        <?php if (!empty($person_phone)) : ?>
+                                                                            • <?php echo $person_phone; ?>
+                                                                        <?php endif; ?>
+                                                                    </span>
+                                                                </div>
+                                                                <div class="signup-date"><?php echo date_i18n('M j, Y \a\t g:i A', strtotime($signup->signup_date)); ?></div>
                                                             </div>
                                                             <?php if (!empty($signup->volunteer_notes)) : ?>
                                                                 <div class="signup-notes">
@@ -1772,7 +2308,24 @@ function lcd_volunteer_shifts_page_callback() {
                                                                     </div>
                                                                 </div>
                                                             <?php endif; ?>
-                                                            <div class="signup-date"><?php echo date_i18n('M j, Y \a\t g:i A', strtotime($signup->signup_date)); ?></div>
+                                                            <div class="signup-status-section">
+                                                                <div class="signup-status-display">
+                                                                    <span class="signup-status-label"><?php _e('Status:', 'lcd-events'); ?></span>
+                                                                    <span class="signup-status-value <?php echo esc_attr($signup->status); ?>">
+                                                                        <?php echo ucfirst($signup->status); ?>
+                                                                    </span>
+                                                                </div>
+                                                                <div class="signup-actions">
+                                                                    <button type="button" class="button button-small toggle-confirmed <?php echo esc_attr($signup->status); ?>" 
+                                                                            data-confirmed="<?php echo esc_attr($signup->status === 'confirmed' ? '1' : '0'); ?>"
+                                                                            title="<?php echo esc_attr($signup->status === 'confirmed' ? __('Mark as unconfirmed', 'lcd-events') : __('Mark as confirmed', 'lcd-events')); ?>">
+                                                                        <?php echo $signup->status === 'confirmed' ? __('Unconfirm', 'lcd-events') : __('Confirm', 'lcd-events'); ?>
+                                                                    </button>
+                                                                    <button type="button" class="button-link button-link-delete unassign-volunteer" title="<?php esc_attr_e('Remove from shift', 'lcd-events'); ?>">
+                                                                        <span class="dashicons dashicons-no-alt"></span>
+                                                                    </button>
+                                                                </div>
+                                                            </div>
                                                         </div>
                                                     <?php endforeach; ?>
                                                 </div>
@@ -1836,12 +2389,16 @@ function lcd_volunteer_shifts_admin_styles() {
         true
     );
 
+    // Localize script for the volunteer shifts overview page (different from event edit page)
     wp_localize_script('lcd-events-admin', 'lcdEventsAdmin', [
         'ajaxurl' => admin_url('admin-ajax.php'),
         'search_people_nonce' => wp_create_nonce('lcd_event_shifts_people_search'),
         'assign_person_nonce' => wp_create_nonce('lcd_event_assign_person_to_shift'),
         'unassign_person_nonce' => wp_create_nonce('lcd_event_unassign_person_from_shift'),
         'edit_notes_nonce' => wp_create_nonce('lcd_event_edit_volunteer_notes'),
+        'toggle_confirmed_nonce' => wp_create_nonce('lcd_event_toggle_volunteer_confirmed'),
+        'export_csv_nonce' => wp_create_nonce('lcd_export_volunteers_csv'),
+        'export_pdf_nonce' => wp_create_nonce('lcd_export_volunteers_pdf'),
         'text' => [
             'confirm_unassign' => __('Are you sure you want to remove this volunteer from this shift?', 'lcd-events'),
             'error_assigning' => __('Could not assign volunteer. Please try again.', 'lcd-events'),
@@ -1856,6 +2413,7 @@ function lcd_volunteer_shifts_admin_styles() {
             'search_placeholder' => __('Search by name or email...', 'lcd-events'),
             'input_too_short' => __('Please enter 2 or more characters', 'lcd-events'),
             'registered_volunteers' => __('Registered Volunteers:', 'lcd-events'),
+            'export_error' => __('Error exporting volunteer list. Please try again.', 'lcd-events'),
         ]
     ]);
     

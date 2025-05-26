@@ -10,6 +10,8 @@ LCD Events is a lightweight event management plugin that provides a custom post 
 
 - Custom "Events" post type
 - Event meta fields: date, time, location, address, registration info, and more
+- Volunteer shift management with signup tracking
+- Export volunteer lists to CSV and PDF formats
 - Custom admin columns for easy event management
 - Custom templates for displaying events on the front-end
 - Sorting events by date in admin and front-end
@@ -43,8 +45,14 @@ LCD Events is a lightweight event management plugin that provides a custom post 
    - Capacity
    - Event Cost
    - Event Poster
-4. Set a featured image for the event (optional)
-5. Publish the event
+4. Configure volunteer shifts in the "Volunteer Shifts" meta box (optional):
+   - Add shift titles, descriptions, dates, and times
+   - Set maximum number of volunteers per shift
+   - Assign people from your database to shifts
+   - Add notes for specific assignments
+5. Add additional action buttons in the "Additional Buttons" meta box (optional)
+6. Set a featured image for the event (optional)
+7. Publish the event
 
 ### Templates
 
@@ -87,6 +95,30 @@ Display events with no title:
 ```
 [lcd_events show_title="false"]
 ```
+
+### Volunteer Management
+
+The plugin includes comprehensive volunteer management features:
+
+1. **Volunteer Shifts**: Create multiple volunteer shifts for each event with different dates, times, and requirements
+2. **Person Assignment**: Assign people from your contact database to specific shifts
+3. **Guest Signups**: Track volunteer signups from people not in your database
+4. **Export Functionality**: Export volunteer lists to CSV or PDF formats for printing or sharing
+5. **Notes System**: Add specific notes for individual volunteer assignments
+
+#### Accessing Volunteer Management
+
+- **Single Event**: Edit any event and use the "Volunteer Shifts" meta box
+- **Overview**: Navigate to Events → Volunteer Shifts for a comprehensive view of all volunteer assignments
+
+#### Exporting Volunteer Lists
+
+You can export volunteer information in two formats:
+
+- **CSV Export**: Perfect for importing into spreadsheet applications or databases
+- **PDF Export**: Professional formatted documents suitable for printing or email distribution
+
+Export options are available both from individual event edit pages and the volunteer shifts overview page.
 
 ## Customization
 

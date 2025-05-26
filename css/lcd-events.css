@@ -1726,17 +1726,26 @@
     border: 1px solid #c3c4c7;
     border-radius: 4px;
     padding: 12px;
-    position: relative;
     transition: background-color 0.15s ease;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
 }
 
 .signup-item-compact:hover {
     background: #f6f7f7;
 }
 
+.signup-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 12px;
+}
+
 .signup-primary {
-    margin-bottom: 4px;
-    padding-right: 80px;
+    flex: 1;
+    min-width: 0;
 }
 
 .signup-primary strong {
@@ -1766,9 +1775,6 @@
 }
 
 .signup-date {
-    position: absolute;
-    top: 8px;
-    right: 8px;
     font-size: 10px;
     color: #8c8f94;
     background: #f6f7f7;
@@ -1776,6 +1782,7 @@
     border-radius: 2px;
     line-height: 1.4;
     white-space: nowrap;
+    align-self: flex-start;
 }
 
 /* Add Shift Button */
@@ -1883,15 +1890,55 @@
 
 /* Signup Actions - for the remove button */
 .signup-item-compact {
-    position: relative; /* For positioning actions */
+    border: 1px solid #e1e1e1;
+    border-radius: 4px;
+    padding: 12px;
+    margin-bottom: 8px;
+    background: #fff;
+}
+
+.signup-status-section {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-top: 8px;
+    padding-top: 8px;
+    border-top: 1px solid #f0f0f0;
+}
+
+.signup-status-display {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    font-weight: 600;
+}
+
+.signup-status-label {
+    color: #666;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.signup-status-value {
+    font-size: 12px;
+    font-weight: 600;
+    text-transform: capitalize;
+}
+
+.signup-status-value.confirmed {
+    color: #46b450;
+}
+
+.signup-status-value.unconfirmed {
+    color: #dc3232;
 }
 
 .signup-actions {
-    position: absolute;
-    top: 8px;
-    right: 8px;
     display: flex;
-    gap: 4px;
+    gap: 8px;
+    align-items: center;
+    flex-wrap: wrap;
 }
 
 .signup-actions .button-link-delete {
@@ -1911,18 +1958,7 @@
     vertical-align: middle;
 }
 
-/* Adjust signup primary padding if actions are present (which they always are now) */
-.signup-item-compact .signup-primary {
-    padding-right: 30px; /* Make space for the remove icon */
-}
-.signup-item-compact .signup-date {
-   /* No longer strictly needed to be absolute as actions take top right */
-   /* Adjust if layout breaks, but for now remove to simplify */
-   position: static;
-   margin-top: 4px;
-   display: block; /* Make it take its own line if needed */
-   text-align: left;
-}
+/* Clean layout - no absolute positioning needed */
 
 @media (max-width: 782px) {
     .shift-summary {
@@ -1950,16 +1986,14 @@
         align-items: flex-start;
     }
     
-    .signup-primary {
-        padding-right: 0;
-        margin-bottom: 8px;
+    .signup-header {
+        flex-direction: column;
+        gap: 8px;
+        align-items: flex-start;
     }
     
     .signup-date {
-        position: static;
-        margin-top: 8px;
         align-self: flex-start;
-        display: inline-block;
     }
     
     .shift-form-col input[type="date"],
@@ -2195,4 +2229,230 @@
 
 #add-additional-button {
     margin-top: 10px;
+}
+
+/* ================================
+   Export Functionality Styles
+================================ */
+
+.volunteer-export-section {
+    background: #f8f9fa;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    padding: 15px;
+    margin-bottom: 20px;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+.volunteer-export-section h4 {
+    margin: 0 0 10px;
+    font-size: 14px;
+    font-weight: 600;
+    color: #23282d;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.volunteer-export-section h4::before {
+    content: "\f132";
+    font-family: dashicons;
+    font-size: 16px;
+    color: #0073aa;
+}
+
+.volunteer-export-section p {
+    margin: 0 0 10px;
+    font-size: 13px;
+    color: #666;
+}
+
+.export-buttons {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+
+.export-volunteers-csv,
+.export-volunteers-pdf {
+    display: inline-flex!important;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 12px;
+    font-size: 13px;
+    line-height: 1.4;
+    border-radius: 3px;
+    text-decoration: none;
+    transition: all 0.2s ease;
+    cursor: pointer;
+}
+
+.export-volunteers-csv {
+    background: #10a085;
+    border-color: #10a085;
+    color: white;
+}
+
+.export-volunteers-csv:hover {
+    background: #0e8a73;
+    border-color: #0e8a73;
+    color: white;
+}
+
+.export-volunteers-pdf {
+    background: #dc3232;
+    border-color: #dc3232;
+    color: white;
+}
+
+.export-volunteers-pdf:hover {
+    background: #c32a2a;
+    border-color: #c32a2a;
+    color: white;
+}
+
+.export-volunteers-csv .dashicons,
+.export-volunteers-pdf .dashicons {
+    font-size: 14px;
+    width: 14px;
+    height: 14px;
+    line-height: 1;
+}
+
+/* Export buttons for the volunteer shifts overview page */
+.event-export-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 10px 15px;
+    background: #f8f9fa;
+    border-bottom: 1px solid #ccd0d4;
+    margin: 0;
+}
+
+.event-export-info {
+    font-size: 13px;
+    color: #666;
+    font-weight: 500;
+}
+
+.event-export-buttons {
+    display: flex;
+    gap: 8px;
+}
+
+.event-export-buttons .export-volunteers-csv,
+.event-export-buttons .export-volunteers-pdf {
+    padding: 4px 8px;
+    font-size: 12px;
+}
+
+.event-export-buttons .dashicons {
+    font-size: 12px;
+    width: 12px;
+    height: 12px;
+}
+
+/* Mobile responsive adjustments */
+@media (max-width: 768px) {
+    .volunteer-export-section {
+        padding: 12px;
+        margin-bottom: 15px;
+    }
+    
+    .export-buttons {
+        flex-direction: column;
+        gap: 8px;
+    }
+    
+    .export-volunteers-csv,
+    .export-volunteers-pdf {
+        justify-content: center;
+        padding: 8px 12px;
+    }
+    
+    .event-export-header {
+        flex-direction: column;
+        gap: 10px;
+        align-items: stretch;
+        padding: 12px 15px;
+    }
+    
+    .event-export-info {
+        text-align: center;
+    }
+    
+    .event-export-buttons {
+        justify-content: center;
+    }
+}
+
+/* ================================
+   Volunteer Confirmation Toggle Styles
+================================ */
+
+/* Confirmation toggle button styling */
+.signup-actions .toggle-confirmed {
+    margin-right: 8px;
+    font-size: 11px;
+    font-weight: 600;
+    min-width: 70px;
+    text-align: center;
+    border-radius: 3px;
+    transition: all 0.2s ease;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+/* When current status is confirmed, button shows "Unconfirm" action (red) */
+.signup-actions .toggle-confirmed.confirmed {
+    background-color: #dc3232;
+    border-color: #dc3232;
+    color: white;
+}
+
+.signup-actions .toggle-confirmed.confirmed:hover {
+    background-color: #a00;
+    border-color: #a00;
+    color: white;
+}
+
+/* When current status is unconfirmed, button shows "Confirm" action (green) */
+.signup-actions .toggle-confirmed.unconfirmed {
+    background-color: #46b450;
+    border-color: #46b450;
+    color: white;
+}
+
+.signup-actions .toggle-confirmed.unconfirmed:hover {
+    background-color: #2e7d32;
+    border-color: #2e7d32;
+    color: white;
+}
+
+/* Visual indication on signup items based on confirmation status */
+.signup-item-compact.status-confirmed {
+    border-left: 3px solid #46b450;
+    background-color: rgba(70, 180, 80, 0.02);
+}
+
+.signup-item-compact.status-unconfirmed {
+    border-left: 3px solid #dc3232;
+    background-color: rgba(220, 50, 50, 0.02);
+}
+
+/* Mobile responsiveness for confirmation toggle */
+@media (max-width: 782px) {
+    .signup-actions .toggle-confirmed {
+        font-size: 10px;
+        min-width: 55px;
+        padding: 4px 6px;
+        margin-right: 4px;
+    }
+    
+    .signup-status-section {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 8px;
+    }
 }

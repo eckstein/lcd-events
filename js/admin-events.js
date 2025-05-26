@@ -311,11 +311,22 @@ jQuery(document).ready(function($) {
                         updateShiftSummaries();
                     }
                 } else {
-                    alert(lcdEventsAdmin.text.error_assigning);
+                    // Display the specific error message from the server
+                    const errorMessage = response.data && response.data.message ? response.data.message : lcdEventsAdmin.text.error_assigning;
+                    alert(errorMessage);
                 }
             },
-            error: function() {
-                alert(lcdEventsAdmin.text.error_assigning);
+            error: function(xhr, status, error) {
+                // Display more detailed error information
+                let errorMessage = lcdEventsAdmin.text.error_assigning;
+                if (xhr.responseJSON && xhr.responseJSON.data && xhr.responseJSON.data.message) {
+                    errorMessage = xhr.responseJSON.data.message;
+                } else if (xhr.status === 404) {
+                    errorMessage = 'AJAX request failed: 404 Not Found. Check that the WordPress AJAX URL is correct.';
+                } else if (xhr.status !== 200) {
+                    errorMessage = `AJAX request failed: ${xhr.status} ${error}`;
+                }
+                alert(errorMessage);
             }
         });
     }
@@ -421,6 +432,51 @@ jQuery(document).ready(function($) {
         });
     });
 
+    // Toggle volunteer confirmed status
+    $(document).on('click', '.toggle-confirmed', function() {
+        const button = $(this);
+        const signupItem = button.closest('.signup-item-compact');
+        const signupId = signupItem.data('signup-id');
+        const currentlyConfirmed = button.hasClass('confirmed');
+        const newConfirmed = !currentlyConfirmed;
+
+        $.ajax({
+            url: lcdEventsAdmin.ajaxurl,
+            type: 'POST',
+            data: {
+                action: 'lcd_toggle_volunteer_confirmed',
+                nonce: lcdEventsAdmin.toggle_confirmed_nonce,
+                signup_id: signupId,
+                confirmed: newConfirmed ? '1' : '0'
+            },
+            success: function(response) {
+                if (response.success) {
+                    // Update the status value display
+                    const statusValue = signupItem.find('.signup-status-value');
+                    
+                    if (newConfirmed) {
+                        button.removeClass('unconfirmed').addClass('confirmed');
+                        button.attr('title', 'Mark as unconfirmed');
+                        button.text('Unconfirm'); // Button shows opposite action
+                        signupItem.removeClass('status-unconfirmed').addClass('status-confirmed');
+                        statusValue.removeClass('unconfirmed').addClass('confirmed').text('Confirmed');
+                    } else {
+                        button.removeClass('confirmed').addClass('unconfirmed');
+                        button.attr('title', 'Mark as confirmed');
+                        button.text('Confirm'); // Button shows opposite action
+                        signupItem.removeClass('status-confirmed').addClass('status-unconfirmed');
+                        statusValue.removeClass('confirmed').addClass('unconfirmed').text('Unconfirmed');
+                    }
+                } else {
+                    alert(lcdEventsAdmin.text.error_toggle_confirmed);
+                }
+            },
+            error: function() {
+                alert(lcdEventsAdmin.text.error_toggle_confirmed);
+            }
+        });
+    });
+
     // Helper function to update shift summary count
     function updateShiftSummaryCount(shiftItem) {
         const signupsList = shiftItem.find('.signups-list');
@@ -431,4 +487,29 @@ jQuery(document).ready(function($) {
             : `${count} / ${maxVolunteers} volunteers`;
         shiftItem.find('.shift-signups-summary').text(summaryText);
     }
+
+    // Export functionality
+    $(document).on('click', '.export-volunteers-csv', function() {
+        const eventId = $(this).data('event-id');
+        if (!eventId) {
+            alert('No event ID found');
+            return;
+        }
+        
+        // Create a temporary link to trigger download
+        const url = lcdEventsAdmin.ajaxurl + '?action=lcd_export_volunteers_csv&event_id=' + eventId;
+        window.open(url, '_blank');
+    });
+
+    $(document).on('click', '.export-volunteers-pdf', function() {
+        const eventId = $(this).data('event-id');
+        if (!eventId) {
+            alert('No event ID found');
+            return;
+        }
+        
+        // Create a temporary link to trigger download
+        const url = lcdEventsAdmin.ajaxurl + '?action=lcd_export_volunteers_pdf&event_id=' + eventId;
+        window.open(url, '_blank');
+    });
 }); 
