@@ -66,25 +66,7 @@ get_header();
         $upcoming_count = $upcoming_events->post_count;
         ?>
 
-        <div class="events-count-banner">
-            <div class="container">
-                <?php if ($upcoming_count > 0) : ?>
-                    <span class="events-count">
-                        <?php 
-                        printf(
-                            _n(
-                                'Showing %d upcoming event', 
-                                'Showing %d upcoming events', 
-                                $upcoming_count, 
-                                'lcd-events'
-                            ), 
-                            $upcoming_count
-                        ); 
-                        ?>
-                    </span>
-                <?php endif; ?>
-            </div>
-        </div>
+       
 
         <div class="events-container">
             <?php if ($upcoming_events->have_posts()) : ?>
