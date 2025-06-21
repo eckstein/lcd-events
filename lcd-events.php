@@ -1115,6 +1115,17 @@ function lcd_event_template_include($template) {
         }
     }
 
+    // Check for volunteer opportunities page (slug-based only, template selection handled by page_template filter)
+    if (is_page()) {
+        global $post;
+        if ($post && $post->post_name === 'volunteer-opportunities') {
+            $custom_template = LCD_EVENTS_PLUGIN_DIR . 'templates/page-volunteer-opportunities.php';
+            if (file_exists($custom_template)) {
+                return $custom_template;
+            }
+        }
+    }
+
     return $template;
 }
 add_filter('template_include', 'lcd_event_template_include');
@@ -2055,7 +2066,7 @@ function lcd_display_event_type($post_id = null) {
  * Enqueue front-end scripts
  */
 function lcd_events_frontend_scripts() {
-    // Only load on single event pages
+    // Load on single event pages
     if (is_singular('event')) {
         wp_enqueue_script(
             'lcd-events-frontend',
@@ -2065,8 +2076,62 @@ function lcd_events_frontend_scripts() {
             true
         );
     }
+    
+    // Load on volunteer opportunities page
+    if (is_page()) {
+        global $post;
+        if ($post && ($post->post_name === 'volunteer-opportunities' || 
+                     get_page_template_slug($post->ID) === 'page-volunteer-opportunities.php')) {
+            wp_enqueue_script(
+                'lcd-volunteer-opportunities',
+                LCD_EVENTS_PLUGIN_URL . 'js/volunteer-opportunities.js',
+                array('jquery'),
+                LCD_EVENTS_VERSION,
+                true
+            );
+            
+            // Localize script with AJAX data for future sign-up functionality
+            wp_localize_script('lcd-volunteer-opportunities', 'lcdVolunteerData', array(
+                'ajaxurl' => admin_url('admin-ajax.php'),
+                'nonce' => wp_create_nonce('lcd_volunteer_signup'),
+                'text' => array(
+                    'signing_up' => __('Signing up...', 'lcd-events'),
+                    'sign_up' => __('Sign Up', 'lcd-events'),
+                    'error_signup' => __('Error signing up. Please try again.', 'lcd-events'),
+                    'success_signup' => __('Successfully signed up!', 'lcd-events'),
+                    'confirm_signup' => __('Are you sure you want to sign up for this volunteer shift?', 'lcd-events'),
+                )
+            ));
+        }
+    }
 }
 add_action('wp_enqueue_scripts', 'lcd_events_frontend_scripts');
+
+/**
+ * Register custom page templates
+ */
+function lcd_register_page_templates($templates) {
+    $templates['page-volunteer-opportunities.php'] = __('Volunteer Opportunities', 'lcd-events');
+    return $templates;
+}
+add_filter('theme_page_templates', 'lcd_register_page_templates');
+
+/**
+ * Load custom page template from plugin
+ */
+function lcd_load_page_template($template) {
+    global $post;
+    
+    if ($post && get_page_template_slug($post->ID) === 'page-volunteer-opportunities.php') {
+        $plugin_template = LCD_EVENTS_PLUGIN_DIR . 'templates/page-volunteer-opportunities.php';
+        if (file_exists($plugin_template)) {
+            return $plugin_template;
+        }
+    }
+    
+    return $template;
+}
+add_filter('page_template', 'lcd_load_page_template');
 
 /**
  * Add Volunteer Shifts Admin Page
