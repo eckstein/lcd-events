@@ -75,15 +75,7 @@ get_header();
                     ?>
                 </h1>
                 
-                <?php if ($current_page && $current_page->post_content) : ?>
-                    <div class="page-description">
-                        <?php echo apply_filters('the_content', $current_page->post_content); ?>
-                    </div>
-                <?php else : ?>
-                    <div class="page-description">
-                        <p><?php _e('Join us in making a difference! Discover and sign up for upcoming volunteer shifts.', 'lcd-events'); ?></p>
-                    </div>
-                <?php endif; ?>
+               
             </div>
         </header>
 

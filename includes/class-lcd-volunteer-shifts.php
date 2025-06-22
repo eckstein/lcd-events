@@ -31,6 +31,16 @@ class LCD_Volunteer_Shifts {
         add_action('wp_ajax_lcd_export_volunteers_pdf', [$this, 'ajax_export_volunteers_pdf']);
         add_action('admin_menu', [$this, 'add_volunteer_shifts_page']);
         add_action('admin_head', [$this, 'volunteer_shifts_admin_styles']);
+        
+        // Email template management
+        add_action('admin_menu', [$this, 'add_email_settings_page']);
+        add_action('admin_init', [$this, 'register_email_settings']);
+        add_action('wp_ajax_lcd_send_test_email', [$this, 'ajax_send_test_email']);
+        add_action('wp_ajax_lcd_refresh_zeptomail_templates', [$this, 'ajax_refresh_zeptomail_templates']);
+        add_action('wp_ajax_lcd_preview_zeptomail_template', [$this, 'ajax_preview_zeptomail_template']);
+        
+        // Setup reminder cron job
+        add_action('init', [$this, 'setup_reminder_cron']);
     }
 
     /**
@@ -742,6 +752,18 @@ class LCD_Volunteer_Shifts {
 
         if ($inserted) {
             $signup_id = $wpdb->insert_id;
+            
+            // Send confirmation email
+            $volunteer_shifts = get_post_meta($event_id, '_volunteer_shifts', true);
+            $shift_details = $volunteer_shifts[$shift_index] ?? [];
+            
+            $volunteer_email_data = [
+                'name' => $volunteer_name,
+                'email' => $volunteer_email,
+                'phone' => $volunteer_phone
+            ];
+            
+            $this->send_volunteer_confirmation_email($event_id, $shift_details, $volunteer_email_data);
             // Prepare HTML for the new signup item to send back to JS
             ob_start();
             ?>
@@ -839,9 +861,29 @@ class LCD_Volunteer_Shifts {
         global $wpdb;
         $table_name = $wpdb->prefix . 'lcd_volunteer_signups';
 
+        // Get signup data before deleting for email
+        $signup = $wpdb->get_row($wpdb->prepare(
+            "SELECT * FROM $table_name WHERE id = %d",
+            $signup_id
+        ));
+
         $deleted = $wpdb->delete($table_name, ['id' => $signup_id], ['%d']);
 
         if ($deleted !== false) {
+            // Send cancellation email if signup was found
+            if ($signup) {
+                $volunteer_shifts = get_post_meta($signup->event_id, '_volunteer_shifts', true);
+                $shift_details = $volunteer_shifts[$signup->shift_index] ?? [];
+                
+                $volunteer_email_data = [
+                    'name' => $signup->volunteer_name,
+                    'email' => $signup->volunteer_email,
+                    'phone' => $signup->volunteer_phone
+                ];
+                
+                $this->send_volunteer_cancellation_email($signup->event_id, $shift_details, $volunteer_email_data);
+            }
+            
             wp_send_json_success(['message' => __('Volunteer unassigned.', 'lcd-events')]);
         } else {
             wp_send_json_error(['message' => __('Could not remove signup.', 'lcd-events'), 'db_error' => $wpdb->last_error], 500);
@@ -1643,15 +1685,33 @@ class LCD_Volunteer_Shifts {
     // Add styles for the volunteer shifts overview page
     public function volunteer_shifts_admin_styles() {
         $screen = get_current_screen();
-        if ($screen->id !== 'event_page_volunteer-shifts') return;
         
-        // Enqueue the new admin stylesheet
-        wp_enqueue_style(
-            'lcd-volunteer-shifts-admin-styles',
-            LCD_EVENTS_PLUGIN_URL . 'css/admin-volunteer-shifts.css',
-            array(),
-            LCD_EVENTS_VERSION
-        );
+        // Load styles for volunteer shifts overview page
+        if ($screen->id === 'event_page_volunteer-shifts') {
+            // Enqueue the volunteer shifts admin stylesheet
+            wp_enqueue_style(
+                'lcd-volunteer-shifts-admin-styles',
+                LCD_EVENTS_PLUGIN_URL . 'css/admin-volunteer-shifts.css',
+                array(),
+                LCD_EVENTS_VERSION
+            );
+        }
+        
+        // Load styles for email templates page
+        if ($screen->id === 'event_page_volunteer-email-templates') {
+            // Enqueue the email templates admin stylesheet
+            wp_enqueue_style(
+                'lcd-email-templates-admin-styles',
+                LCD_EVENTS_PLUGIN_URL . 'css/email-templates-admin.css',
+                array(),
+                LCD_EVENTS_VERSION
+            );
+        }
+        
+        // Return early if not on relevant pages
+        if (!in_array($screen->id, ['event_page_volunteer-shifts', 'event_page_volunteer-email-templates'])) {
+            return;
+        }
 
         // Enqueue the main admin CSS file as well
         wp_enqueue_style(
@@ -1716,5 +1776,1283 @@ class LCD_Volunteer_Shifts {
                 'registered_volunteers' => __('Registered Volunteers:', 'lcd-events'),
             ]
         ]);
+    }
+
+    /**
+     * Add Email Settings Admin Page
+     */
+    public function add_email_settings_page() {
+        add_submenu_page(
+            'edit.php?post_type=event',           // Parent slug (Events menu)
+            __('Email Templates', 'lcd-events'),  // Page title
+            __('Email Templates', 'lcd-events'),  // Menu title
+            'manage_options',                     // Capability required
+            'volunteer-email-templates',          // Menu slug
+            [$this, 'email_settings_page_callback']  // Callback function
+        );
+    }
+
+    /**
+     * Register email settings
+     */
+    public function register_email_settings() {
+        // Register settings group
+        register_setting('lcd_volunteer_email_settings', 'lcd_volunteer_email_settings', [
+            'sanitize_callback' => [$this, 'sanitize_email_settings']
+        ]);
+
+        // Add settings sections
+        add_settings_section(
+            'zeptomail_api',
+            __('ZeptoMail API Settings', 'lcd-events'),
+            [$this, 'zeptomail_api_section_callback'],
+            'lcd_volunteer_email_settings'
+        );
+
+        add_settings_section(
+            'email_general',
+            __('General Email Settings', 'lcd-events'),
+            [$this, 'email_general_section_callback'],
+            'lcd_volunteer_email_settings'
+        );
+
+        add_settings_section(
+            'template_mapping',
+            __('ZeptoMail Template Mapping', 'lcd-events'),
+            [$this, 'template_mapping_section_callback'],
+            'lcd_volunteer_email_settings'
+        );
+
+        // ZeptoMail API settings
+        add_settings_field(
+            'zeptomail_api_token',
+            __('ZeptoMail API Token', 'lcd-events'),
+            [$this, 'zeptomail_api_token_field_callback'],
+            'lcd_volunteer_email_settings',
+            'zeptomail_api'
+        );
+
+        add_settings_field(
+            'zeptomail_domain',
+            __('Mail Agent Domain', 'lcd-events'),
+            [$this, 'zeptomail_domain_field_callback'],
+            'lcd_volunteer_email_settings',
+            'zeptomail_api'
+        );
+
+        add_settings_field(
+            'enable_zeptomail',
+            __('Enable ZeptoMail', 'lcd-events'),
+            [$this, 'enable_zeptomail_field_callback'],
+            'lcd_volunteer_email_settings',
+            'zeptomail_api'
+        );
+
+        // General settings fields
+        add_settings_field(
+            'from_name',
+            __('From Name', 'lcd-events'),
+            [$this, 'from_name_field_callback'],
+            'lcd_volunteer_email_settings',
+            'email_general'
+        );
+
+        add_settings_field(
+            'from_email',
+            __('From Email', 'lcd-events'),
+            [$this, 'from_email_field_callback'],
+            'lcd_volunteer_email_settings',
+            'email_general'
+        );
+
+        add_settings_field(
+            'reply_to',
+            __('Reply To Email', 'lcd-events'),
+            [$this, 'reply_to_field_callback'],
+            'lcd_volunteer_email_settings',
+            'email_general'
+        );
+
+        // Template mapping fields
+        $email_types = $this->get_email_types();
+        foreach ($email_types as $type => $label) {
+            add_settings_field(
+                $type . '_template',
+                sprintf(__('%s Template', 'lcd-events'), $label),
+                [$this, 'template_mapping_field_callback'],
+                'lcd_volunteer_email_settings',
+                'template_mapping',
+                ['type' => $type, 'label' => $label]
+            );
+        }
+    }
+
+    /**
+     * Get available email types
+     */
+    public function get_email_types() {
+        return [
+            'volunteer_confirmation' => __('Volunteer Assignment Confirmation', 'lcd-events'),
+            'volunteer_cancellation' => __('Volunteer Assignment Cancellation', 'lcd-events'),
+            'volunteer_reminder' => __('Volunteer Shift Reminder', 'lcd-events'),
+            'event_update' => __('Event Update Notification', 'lcd-events'),
+            'shift_change' => __('Shift Details Change', 'lcd-events'),
+        ];
+    }
+
+    /**
+     * Get default email templates
+     */
+    public function get_default_email_templates() {
+        return [
+            'volunteer_confirmation' => [
+                'subject' => __('Thank you for volunteering - {event_title}', 'lcd-events'),
+                'content' => __('Hi {volunteer_name},
+
+Thank you for signing up to volunteer for {event_title}!
+
+Event Details:
+- Event: {event_title}
+- Date: {event_date}
+- Time: {event_time}
+- Location: {event_location}
+
+Your Volunteer Shift:
+- Shift: {shift_title}
+- Date: {shift_date}
+- Time: {shift_start_time} - {shift_end_time}
+- Description: {shift_description}
+
+If you have any questions or need to make changes to your volunteer assignment, please contact us.
+
+Thank you for your support!
+
+Best regards,
+Lewis County Democrats', 'lcd-events')
+            ],
+            'volunteer_cancellation' => [
+                'subject' => __('Volunteer assignment cancelled - {event_title}', 'lcd-events'),
+                'content' => __('Hi {volunteer_name},
+
+This email confirms that your volunteer assignment has been cancelled for {event_title}.
+
+Cancelled Assignment:
+- Event: {event_title}
+- Shift: {shift_title}
+- Date: {shift_date}
+
+We understand that circumstances change. If you\'d like to volunteer for a different shift or event, please let us know.
+
+Thank you for your willingness to help!
+
+Best regards,
+Lewis County Democrats', 'lcd-events')
+            ],
+            'volunteer_reminder' => [
+                'subject' => __('Reminder: Volunteer shift tomorrow - {event_title}', 'lcd-events'),
+                'content' => __('Hi {volunteer_name},
+
+This is a friendly reminder about your volunteer shift tomorrow!
+
+Event Details:
+- Event: {event_title}
+- Date: {event_date}
+- Time: {event_time}
+- Location: {event_location}
+- Address: {event_address}
+
+Your Volunteer Shift:
+- Shift: {shift_title}
+- Date: {shift_date}
+- Time: {shift_start_time} - {shift_end_time}
+- Description: {shift_description}
+
+What to bring:
+- Your enthusiasm!
+- Comfortable shoes
+- Water bottle
+
+If you need directions or have any last-minute questions, please don\'t hesitate to reach out.
+
+See you tomorrow!
+
+Best regards,
+Lewis County Democrats', 'lcd-events')
+            ],
+            'event_update' => [
+                'subject' => __('Important update about {event_title}', 'lcd-events'),
+                'content' => __('Hi {volunteer_name},
+
+We have an important update regarding {event_title} for which you are volunteering.
+
+{update_message}
+
+Event Details:
+- Event: {event_title}
+- Date: {event_date}
+- Time: {event_time}
+- Location: {event_location}
+
+Your Volunteer Shift:
+- Shift: {shift_title}
+- Date: {shift_date}
+- Time: {shift_start_time} - {shift_end_time}
+
+If you have any questions about these changes, please contact us.
+
+Thank you for your understanding!
+
+Best regards,
+Lewis County Democrats', 'lcd-events')
+            ],
+            'shift_change' => [
+                'subject' => __('Your volunteer shift has been updated - {event_title}', 'lcd-events'),
+                'content' => __('Hi {volunteer_name},
+
+There has been a change to your volunteer shift for {event_title}.
+
+Updated Shift Details:
+- Event: {event_title}
+- Shift: {shift_title}
+- Date: {shift_date}
+- Time: {shift_start_time} - {shift_end_time}
+- Description: {shift_description}
+
+Event Information:
+- Date: {event_date}
+- Time: {event_time}
+- Location: {event_location}
+
+If you have any questions about these changes or cannot accommodate the new schedule, please contact us as soon as possible.
+
+Thank you for your flexibility!
+
+Best regards,
+Lewis County Democrats', 'lcd-events')
+            ]
+        ];
+    }
+
+    /**
+     * Email Settings Page Callback
+     */
+    public function email_settings_page_callback() {
+        ?>
+        <div class="wrap">
+            <h1><?php _e('Volunteer Email Templates', 'lcd-events'); ?></h1>
+            
+            <form method="post" action="options.php">
+                <?php
+                settings_fields('lcd_volunteer_email_settings');
+                do_settings_sections('lcd_volunteer_email_settings');
+                submit_button();
+                ?>
+            </form>
+
+            <div class="lcd-email-help">
+                <h3><?php _e('ZeptoMail Merge Variables', 'lcd-events'); ?></h3>
+                <p><?php _e('When using ZeptoMail templates, these variables will be passed as merge data to your templates. Make sure your ZeptoMail templates use these exact variable names.', 'lcd-events'); ?></p>
+                
+                <div class="lcd-template-variables">
+                    <div class="variable-group">
+                        <h4><?php _e('Volunteer Information', 'lcd-events'); ?></h4>
+                        <ul>
+                            <li><code>volunteer_name</code> - <?php _e('Volunteer\'s name', 'lcd-events'); ?></li>
+                            <li><code>volunteer_email</code> - <?php _e('Volunteer\'s email', 'lcd-events'); ?></li>
+                            <li><code>volunteer_phone</code> - <?php _e('Volunteer\'s phone number', 'lcd-events'); ?></li>
+                        </ul>
+                    </div>
+                    
+                    <div class="variable-group">
+                        <h4><?php _e('Event Information', 'lcd-events'); ?></h4>
+                        <ul>
+                            <li><code>event_title</code> - <?php _e('Event title', 'lcd-events'); ?></li>
+                            <li><code>event_date</code> - <?php _e('Event date', 'lcd-events'); ?></li>
+                            <li><code>event_time</code> - <?php _e('Event start time', 'lcd-events'); ?></li>
+                            <li><code>event_location</code> - <?php _e('Event location', 'lcd-events'); ?></li>
+                            <li><code>event_address</code> - <?php _e('Event address', 'lcd-events'); ?></li>
+                            <li><code>event_url</code> - <?php _e('Event page URL', 'lcd-events'); ?></li>
+                        </ul>
+                    </div>
+                    
+                    <div class="variable-group">
+                        <h4><?php _e('Shift Information', 'lcd-events'); ?></h4>
+                        <ul>
+                            <li><code>shift_title</code> - <?php _e('Shift title', 'lcd-events'); ?></li>
+                            <li><code>shift_description</code> - <?php _e('Shift description', 'lcd-events'); ?></li>
+                            <li><code>shift_date</code> - <?php _e('Shift date', 'lcd-events'); ?></li>
+                            <li><code>shift_start_time</code> - <?php _e('Shift start time', 'lcd-events'); ?></li>
+                            <li><code>shift_end_time</code> - <?php _e('Shift end time', 'lcd-events'); ?></li>
+                        </ul>
+                    </div>
+                    
+                    <div class="variable-group">
+                        <h4><?php _e('Special Variables', 'lcd-events'); ?></h4>
+                        <ul>
+                            <li><code>update_message</code> - <?php _e('Custom update message (for event updates)', 'lcd-events'); ?></li>
+                            <li><code>site_name</code> - <?php _e('Website name', 'lcd-events'); ?></li>
+                            <li><code>current_date</code> - <?php _e('Current date', 'lcd-events'); ?></li>
+                        </ul>
+                    </div>
+                </div>
+                
+                <div class="lcd-test-email-section">
+                    <h3><?php _e('Test Email Functionality', 'lcd-events'); ?></h3>
+                    <p><?php _e('Send a test email to verify your settings are working correctly.', 'lcd-events'); ?></p>
+                    <div class="test-email-form">
+                        <input type="email" id="test-email-address" placeholder="<?php esc_attr_e('Enter test email address', 'lcd-events'); ?>" class="regular-text">
+                        <select id="test-email-type">
+                            <?php foreach ($this->get_email_types() as $type => $label) : ?>
+                                <option value="<?php echo esc_attr($type); ?>"><?php echo esc_html($label); ?></option>
+                            <?php endforeach; ?>
+                        </select>
+                        <button type="button" id="send-test-email" class="button button-secondary">
+                            <?php _e('Send Test Email', 'lcd-events'); ?>
+                        </button>
+                    </div>
+                    <div id="test-email-result" style="margin-top: 10px;"></div>
+                </div>
+            </div>
+
+            <!-- Template Preview Modal -->
+            <div id="template-preview-modal" style="display: none;">
+                <div class="template-preview-overlay">
+                    <div class="template-preview-content">
+                        <div class="template-preview-header">
+                            <h3><?php _e('ZeptoMail Template Preview', 'lcd-events'); ?></h3>
+                            <button type="button" class="template-preview-close">&times;</button>
+                        </div>
+                        <div class="template-preview-body">
+                            <div class="template-preview-info">
+                                <h4><?php _e('Template Information', 'lcd-events'); ?></h4>
+                                <div id="template-info-content"></div>
+                            </div>
+                            <div class="template-preview-merge">
+                                <h4><?php _e('Sample Merge Data', 'lcd-events'); ?></h4>
+                                <div id="template-merge-content"></div>
+                            </div>
+                            <div class="template-preview-html">
+                                <h4><?php _e('Template HTML', 'lcd-events'); ?></h4>
+                                <div id="template-html-content"></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <script>
+        jQuery(document).ready(function($) {
+            // Test email functionality
+            $('#send-test-email').on('click', function() {
+                var email = $('#test-email-address').val();
+                var type = $('#test-email-type').val();
+                var $button = $(this);
+                var $result = $('#test-email-result');
+                
+                if (!email) {
+                    alert('<?php _e('Please enter a test email address', 'lcd-events'); ?>');
+                    return;
+                }
+                
+                $button.prop('disabled', true).text('<?php _e('Sending...', 'lcd-events'); ?>');
+                $result.hide();
+                
+                $.ajax({
+                    url: ajaxurl,
+                    type: 'POST',
+                    data: {
+                        action: 'lcd_send_test_email',
+                        email: email,
+                        type: type,
+                        nonce: '<?php echo wp_create_nonce('lcd_send_test_email'); ?>'
+                    },
+                    success: function(response) {
+                        if (response.success) {
+                            $result.removeClass('error').addClass('success').text(response.data.message).show();
+                        } else {
+                            $result.removeClass('success').addClass('error').text(response.data.message).show();
+                        }
+                    },
+                    error: function() {
+                        $result.removeClass('success').addClass('error').text('<?php _e('Error sending test email', 'lcd-events'); ?>').show();
+                    },
+                    complete: function() {
+                        $button.prop('disabled', false).text('<?php _e('Send Test Email', 'lcd-events'); ?>');
+                    }
+                });
+            });
+
+            // Refresh ZeptoMail templates
+            $('#refresh-templates').on('click', function() {
+                var $button = $(this);
+                var $result = $('#template-refresh-result');
+                
+                $button.prop('disabled', true).text('<?php _e('Refreshing...', 'lcd-events'); ?>');
+                $result.hide();
+                
+                $.ajax({
+                    url: ajaxurl,
+                    type: 'POST',
+                    data: {
+                        action: 'lcd_refresh_zeptomail_templates',
+                        nonce: '<?php echo wp_create_nonce('lcd_refresh_zeptomail_templates'); ?>'
+                    },
+                    success: function(response) {
+                        if (response.success) {
+                            $result.removeClass('error').addClass('success').text(response.data.message).show();
+                            
+                            // Update template dropdowns
+                            response.data.templates.forEach(function(template) {
+                                $('.template-select').each(function() {
+                                    var $select = $(this);
+                                    var currentValue = $select.val();
+                                    
+                                    // Only add if not already present
+                                    if ($select.find('option[value="' + template.template_key + '"]').length === 0) {
+                                        $select.append('<option value="' + template.template_key + '">' + template.template_name + '</option>');
+                                    }
+                                });
+                            });
+                            
+                            // Refresh the page to show updated dropdowns properly
+                            setTimeout(function() {
+                                location.reload();
+                            }, 2000);
+                        } else {
+                            $result.removeClass('success').addClass('error').text(response.data.message).show();
+                        }
+                    },
+                    error: function() {
+                        $result.removeClass('success').addClass('error').text('<?php _e('Error refreshing templates', 'lcd-events'); ?>').show();
+                    },
+                    complete: function() {
+                        $button.prop('disabled', false).text('<?php _e('Refresh Templates from ZeptoMail', 'lcd-events'); ?>');
+                    }
+                });
+            });
+
+            // Preview template functionality
+            $(document).on('click', '.preview-template', function() {
+                var templateKey = $(this).data('template-key');
+                var emailType = $(this).closest('.template-mapping-row').data('email-type');
+                
+                $.ajax({
+                    url: ajaxurl,
+                    type: 'POST',
+                    data: {
+                        action: 'lcd_preview_zeptomail_template',
+                        template_key: templateKey,
+                        email_type: emailType,
+                        nonce: '<?php echo wp_create_nonce('lcd_preview_zeptomail_template'); ?>'
+                    },
+                    success: function(response) {
+                        if (response.success) {
+                            showTemplatePreview(response.data);
+                        } else {
+                            alert('<?php _e('Error loading template preview: ', 'lcd-events'); ?>' + response.data.message);
+                        }
+                    },
+                    error: function() {
+                        alert('<?php _e('Error loading template preview', 'lcd-events'); ?>');
+                    }
+                });
+            });
+
+            // Handle template selection changes
+            $(document).on('change', '.template-select', function() {
+                var $select = $(this);
+                var $row = $select.closest('.template-mapping-row');
+                var $previewBtn = $row.find('.preview-template');
+                var selectedTemplate = $select.val();
+                
+                if (selectedTemplate) {
+                    if ($previewBtn.length === 0) {
+                        $select.after('<button type="button" class="button button-secondary preview-template" data-template-key="' + selectedTemplate + '" style="margin-left: 10px;"><?php _e('Preview Template', 'lcd-events'); ?></button>');
+                    } else {
+                        $previewBtn.data('template-key', selectedTemplate).show();
+                    }
+                } else {
+                    $previewBtn.hide();
+                }
+            });
+
+            // Modal functionality
+            function showTemplatePreview(data) {
+                var template = data.template;
+                var mergeData = data.sample_merge_data;
+                
+                // Populate template info
+                var infoHtml = '<p><strong><?php _e('Template Name:', 'lcd-events'); ?></strong> ' + template.template_name + '</p>';
+                infoHtml += '<p><strong><?php _e('Template Key:', 'lcd-events'); ?></strong> ' + template.template_key + '</p>';
+                if (template.description) {
+                    infoHtml += '<p><strong><?php _e('Description:', 'lcd-events'); ?></strong> ' + template.description + '</p>';
+                }
+                $('#template-info-content').html(infoHtml);
+                
+                // Populate merge data
+                var mergeHtml = '<pre>' + JSON.stringify(mergeData, null, 2) + '</pre>';
+                $('#template-merge-content').html(mergeHtml);
+                
+                // Populate template HTML
+                var htmlContent = template.htmlbody || template.textbody || '<?php _e('No template content available', 'lcd-events'); ?>';
+                $('#template-html-content').html('<iframe srcdoc="' + htmlContent.replace(/"/g, '&quot;') + '" style="width: 100%; height: 400px; border: 1px solid #ddd;"></iframe>');
+                
+                // Show modal
+                $('#template-preview-modal').show();
+            }
+
+            // Close modal
+            $('.template-preview-close, .template-preview-overlay').on('click', function(e) {
+                if (e.target === this) {
+                    $('#template-preview-modal').hide();
+                }
+            });
+
+            // ESC key to close modal
+            $(document).on('keyup', function(e) {
+                if (e.keyCode === 27) {
+                    $('#template-preview-modal').hide();
+                }
+            });
+        });
+        </script>
+        <?php
+    }
+
+    /**
+     * Section callbacks
+     */
+    public function zeptomail_api_section_callback() {
+        echo '<p>' . __('Configure your ZeptoMail API credentials. You can find these in your ZeptoMail dashboard under Mail Agents.', 'lcd-events') . '</p>';
+    }
+
+    public function email_general_section_callback() {
+        echo '<p>' . __('Configure general email settings for volunteer notifications.', 'lcd-events') . '</p>';
+    }
+
+    public function template_mapping_section_callback() {
+        echo '<p>' . __('Map each email type to a ZeptoMail template. Templates will be loaded from your ZeptoMail account when API credentials are configured.', 'lcd-events') . '</p>';
+        echo '<button type="button" id="refresh-templates" class="button button-secondary">' . __('Refresh Templates from ZeptoMail', 'lcd-events') . '</button>';
+        echo '<div id="template-refresh-result"></div>';
+    }
+
+    /**
+     * Field callbacks
+     */
+    public function zeptomail_api_token_field_callback() {
+        $options = get_option('lcd_volunteer_email_settings', []);
+        $value = $options['zeptomail_api_token'] ?? '';
+        echo '<input type="password" name="lcd_volunteer_email_settings[zeptomail_api_token]" value="' . esc_attr($value) . '" class="regular-text" placeholder="' . esc_attr__('Your ZeptoMail Send Mail Token', 'lcd-events') . '">';
+        echo '<p class="description">' . __('Get this from ZeptoMail Dashboard → Mail Agents → Send Mail Token', 'lcd-events') . '</p>';
+    }
+
+    public function zeptomail_domain_field_callback() {
+        $options = get_option('lcd_volunteer_email_settings', []);
+        $value = $options['zeptomail_domain'] ?? '';
+        echo '<input type="text" name="lcd_volunteer_email_settings[zeptomail_domain]" value="' . esc_attr($value) . '" class="regular-text" placeholder="' . esc_attr__('e.g., smtp.zeptomail.com', 'lcd-events') . '">';
+        echo '<p class="description">' . __('Your ZeptoMail mail agent domain (usually smtp.zeptomail.com or smtp.zeptomail.eu)', 'lcd-events') . '</p>';
+    }
+
+    public function enable_zeptomail_field_callback() {
+        $options = get_option('lcd_volunteer_email_settings', []);
+        $value = $options['enable_zeptomail'] ?? 0;
+        echo '<input type="checkbox" id="enable_zeptomail" name="lcd_volunteer_email_settings[enable_zeptomail]" value="1" ' . checked(1, $value, false) . '>';
+        echo '<label for="enable_zeptomail">' . __('Use ZeptoMail API for sending emails', 'lcd-events') . '</label>';
+        echo '<p class="description">' . __('When enabled, emails will be sent using ZeptoMail templates. When disabled, uses WordPress wp_mail().', 'lcd-events') . '</p>';
+    }
+
+    public function from_name_field_callback() {
+        $options = get_option('lcd_volunteer_email_settings', []);
+        $value = $options['from_name'] ?? get_bloginfo('name');
+        echo '<input type="text" name="lcd_volunteer_email_settings[from_name]" value="' . esc_attr($value) . '" class="regular-text">';
+        echo '<p class="description">' . __('Name that appears in the "From" field of emails.', 'lcd-events') . '</p>';
+    }
+
+    public function from_email_field_callback() {
+        $options = get_option('lcd_volunteer_email_settings', []);
+        $value = $options['from_email'] ?? get_option('admin_email');
+        echo '<input type="email" name="lcd_volunteer_email_settings[from_email]" value="' . esc_attr($value) . '" class="regular-text">';
+        echo '<p class="description">' . __('Email address that appears in the "From" field.', 'lcd-events') . '</p>';
+    }
+
+    public function reply_to_field_callback() {
+        $options = get_option('lcd_volunteer_email_settings', []);
+        $value = $options['reply_to'] ?? get_option('admin_email');
+        echo '<input type="email" name="lcd_volunteer_email_settings[reply_to]" value="' . esc_attr($value) . '" class="regular-text">';
+        echo '<p class="description">' . __('Email address for replies. Leave empty to use the From email.', 'lcd-events') . '</p>';
+    }
+
+    public function template_mapping_field_callback($args) {
+        $options = get_option('lcd_volunteer_email_settings', []);
+        $templates = $options['zeptomail_templates'] ?? [];
+        $selected_template = $options['template_mapping'][$args['type']] ?? '';
+        
+        echo '<div class="template-mapping-row" data-email-type="' . esc_attr($args['type']) . '">';
+        echo '<select name="lcd_volunteer_email_settings[template_mapping][' . esc_attr($args['type']) . ']" class="regular-text template-select">';
+        echo '<option value="">' . __('Select a ZeptoMail template...', 'lcd-events') . '</option>';
+        
+        foreach ($templates as $template) {
+            $selected = selected($selected_template, $template['template_key'], false);
+            echo '<option value="' . esc_attr($template['template_key']) . '" ' . $selected . '>' . esc_html($template['template_name']) . '</option>';
+        }
+        
+        echo '</select>';
+        
+        if ($selected_template) {
+            echo '<button type="button" class="button button-secondary preview-template" data-template-key="' . esc_attr($selected_template) . '" style="margin-left: 10px;">' . __('Preview Template', 'lcd-events') . '</button>';
+        }
+        
+        echo '<p class="description">' . sprintf(__('Select the ZeptoMail template for %s emails.', 'lcd-events'), $args['label']) . '</p>';
+        echo '</div>';
+    }
+
+    /**
+     * Sanitize email settings
+     */
+    public function sanitize_email_settings($input) {
+        $sanitized = [];
+        
+        // Sanitize ZeptoMail API settings
+        $sanitized['zeptomail_api_token'] = sanitize_text_field($input['zeptomail_api_token'] ?? '');
+        $sanitized['zeptomail_domain'] = sanitize_text_field($input['zeptomail_domain'] ?? '');
+        $sanitized['enable_zeptomail'] = isset($input['enable_zeptomail']) ? 1 : 0;
+        
+        // Sanitize general settings
+        $sanitized['from_name'] = sanitize_text_field($input['from_name'] ?? '');
+        $sanitized['from_email'] = sanitize_email($input['from_email'] ?? '');
+        $sanitized['reply_to'] = sanitize_email($input['reply_to'] ?? '');
+        
+        // Sanitize template mappings
+        if (isset($input['template_mapping']) && is_array($input['template_mapping'])) {
+            foreach ($input['template_mapping'] as $type => $template_key) {
+                $sanitized['template_mapping'][$type] = sanitize_text_field($template_key);
+            }
+        }
+        
+        // Preserve existing ZeptoMail templates data
+        $existing = get_option('lcd_volunteer_email_settings', []);
+        if (isset($existing['zeptomail_templates'])) {
+            $sanitized['zeptomail_templates'] = $existing['zeptomail_templates'];
+        }
+        
+        return $sanitized;
+    }
+
+    /**
+     * ZeptoMail API: Get templates from ZeptoMail
+     */
+    public function get_zeptomail_templates() {
+        $settings = get_option('lcd_volunteer_email_settings', []);
+        $api_token = $settings['zeptomail_api_token'] ?? '';
+        $domain = $settings['zeptomail_domain'] ?? 'smtp.zeptomail.com';
+        
+        if (empty($api_token)) {
+            return new WP_Error('missing_token', __('ZeptoMail API token is required', 'lcd-events'));
+        }
+        
+        $url = "https://api.{$domain}/v1/email/templates";
+        
+        $response = wp_remote_get($url, [
+            'headers' => [
+                'Authorization' => 'Zoho-enczapikey ' . $api_token,
+                'Content-Type' => 'application/json',
+            ],
+            'timeout' => 30
+        ]);
+        
+        if (is_wp_error($response)) {
+            return $response;
+        }
+        
+        $body = wp_remote_retrieve_body($response);
+        $data = json_decode($body, true);
+        
+        if (wp_remote_retrieve_response_code($response) !== 200) {
+            return new WP_Error('api_error', $data['message'] ?? __('Unknown API error', 'lcd-events'));
+        }
+        
+        return $data['data'] ?? [];
+    }
+
+    /**
+     * ZeptoMail API: Get specific template details
+     */
+    public function get_zeptomail_template($template_key) {
+        $settings = get_option('lcd_volunteer_email_settings', []);
+        $api_token = $settings['zeptomail_api_token'] ?? '';
+        $domain = $settings['zeptomail_domain'] ?? 'smtp.zeptomail.com';
+        
+        if (empty($api_token) || empty($template_key)) {
+            return new WP_Error('missing_params', __('API token and template key are required', 'lcd-events'));
+        }
+        
+        $url = "https://api.{$domain}/v1/email/templates/{$template_key}";
+        
+        $response = wp_remote_get($url, [
+            'headers' => [
+                'Authorization' => 'Zoho-enczapikey ' . $api_token,
+                'Content-Type' => 'application/json',
+            ],
+            'timeout' => 30
+        ]);
+        
+        if (is_wp_error($response)) {
+            return $response;
+        }
+        
+        $body = wp_remote_retrieve_body($response);
+        $data = json_decode($body, true);
+        
+        if (wp_remote_retrieve_response_code($response) !== 200) {
+            return new WP_Error('api_error', $data['message'] ?? __('Unknown API error', 'lcd-events'));
+        }
+        
+        return $data['data'] ?? [];
+    }
+
+    /**
+     * ZeptoMail API: Send email using template
+     */
+    public function send_zeptomail_template($to_email, $template_key, $merge_data = [], $from_name = '', $from_email = '', $reply_to = '') {
+        $settings = get_option('lcd_volunteer_email_settings', []);
+        $api_token = $settings['zeptomail_api_token'] ?? '';
+        $domain = $settings['zeptomail_domain'] ?? 'smtp.zeptomail.com';
+        
+        if (empty($api_token) || empty($template_key) || empty($to_email)) {
+            error_log('ZeptoMail: Missing required parameters');
+            return false;
+        }
+        
+        // Use settings defaults if not provided
+        $from_name = $from_name ?: ($settings['from_name'] ?? get_bloginfo('name'));
+        $from_email = $from_email ?: ($settings['from_email'] ?? get_option('admin_email'));
+        $reply_to = $reply_to ?: ($settings['reply_to'] ?? $from_email);
+        
+        $url = "https://api.{$domain}/v1/email/template";
+        
+        $payload = [
+            'template_key' => $template_key,
+            'to' => [
+                [
+                    'email_address' => [
+                        'address' => $to_email,
+                        'name' => $merge_data['volunteer_name'] ?? ''
+                    ]
+                ]
+            ],
+            'from' => [
+                'address' => $from_email,
+                'name' => $from_name
+            ],
+            'reply_to' => [
+                [
+                    'address' => $reply_to,
+                    'name' => $from_name
+                ]
+            ],
+            'merge_info' => $merge_data
+        ];
+        
+        $response = wp_remote_post($url, [
+            'headers' => [
+                'Authorization' => 'Zoho-enczapikey ' . $api_token,
+                'Content-Type' => 'application/json',
+            ],
+            'body' => json_encode($payload),
+            'timeout' => 30
+        ]);
+        
+        if (is_wp_error($response)) {
+            error_log('ZeptoMail API Error: ' . $response->get_error_message());
+            return false;
+        }
+        
+        $response_code = wp_remote_retrieve_response_code($response);
+        $body = wp_remote_retrieve_body($response);
+        $data = json_decode($body, true);
+        
+        if ($response_code !== 200) {
+            error_log('ZeptoMail API Error: ' . ($data['message'] ?? 'Unknown error'));
+            return false;
+        }
+        
+        return true;
+    }
+
+    /**
+     * Send email using ZeptoMail API or wp_mail
+     */
+    public function send_volunteer_email($email_type, $volunteer_data, $event_data, $shift_data = null, $additional_data = []) {
+        $settings = get_option('lcd_volunteer_email_settings', []);
+        $enable_zeptomail = $settings['enable_zeptomail'] ?? false;
+        
+        // Get recipient email
+        $to_email = $volunteer_data['email'] ?? '';
+        if (empty($to_email)) {
+            error_log("LCD Events: No email address provided for volunteer");
+            return false;
+        }
+        
+        // Prepare merge variables for ZeptoMail or template variables for wp_mail
+        $merge_data = $this->prepare_email_variables($volunteer_data, $event_data, $shift_data, $additional_data);
+        
+        $result = false;
+        
+        if ($enable_zeptomail) {
+            // Use ZeptoMail Template API
+            $template_mapping = $settings['template_mapping'] ?? [];
+            $template_key = $template_mapping[$email_type] ?? '';
+            
+            if (empty($template_key)) {
+                error_log("LCD Events: No ZeptoMail template mapped for email type '$email_type'");
+                return false;
+            }
+            
+            $result = $this->send_zeptomail_template(
+                $to_email,
+                $template_key,
+                $merge_data,
+                $settings['from_name'] ?? get_bloginfo('name'),
+                $settings['from_email'] ?? get_option('admin_email'),
+                $settings['reply_to'] ?? ($settings['from_email'] ?? get_option('admin_email'))
+            );
+        } else {
+            // Use WordPress wp_mail with fallback templates
+            $templates = $settings['templates'] ?? [];
+            $defaults = $this->get_default_email_templates();
+            
+            // Get template
+            $template = $templates[$email_type] ?? $defaults[$email_type] ?? null;
+            if (!$template) {
+                error_log("LCD Events: Email template '$email_type' not found");
+                return false;
+            }
+            
+            // Replace variables in subject and content
+            $subject = $this->replace_email_variables($template['subject'], $merge_data);
+            $content = $this->replace_email_variables($template['content'], $merge_data);
+            
+            // Prepare email headers
+            $headers = [];
+            $from_name = $settings['from_name'] ?? get_bloginfo('name');
+            $from_email = $settings['from_email'] ?? get_option('admin_email');
+            $reply_to = $settings['reply_to'] ?? $from_email;
+            
+            $headers[] = 'From: ' . $from_name . ' <' . $from_email . '>';
+            $headers[] = 'Reply-To: ' . $reply_to;
+            $headers[] = 'Content-Type: text/plain; charset=UTF-8';
+            
+            $result = wp_mail($to_email, $subject, $content, $headers);
+        }
+        
+        // Track email statistics
+        if ($result) {
+            $this->update_email_stats($email_type);
+        }
+        
+        return $result;
+    }
+
+    /**
+     * Prepare email template variables
+     */
+    private function prepare_email_variables($volunteer_data, $event_data, $shift_data = null, $additional_data = []) {
+        $variables = [];
+        
+        // Volunteer information
+        $variables['volunteer_name'] = $volunteer_data['name'] ?? '';
+        $variables['volunteer_email'] = $volunteer_data['email'] ?? '';
+        $variables['volunteer_phone'] = $volunteer_data['phone'] ?? '';
+        
+        // Event information
+        $variables['event_title'] = $event_data['title'] ?? '';
+        $variables['event_date'] = !empty($event_data['date']) ? date_i18n(get_option('date_format'), strtotime($event_data['date'])) : '';
+        $variables['event_time'] = !empty($event_data['time']) ? date_i18n(get_option('time_format'), strtotime($event_data['date'] . ' ' . $event_data['time'])) : '';
+        $variables['event_location'] = $event_data['location'] ?? '';
+        $variables['event_address'] = $event_data['address'] ?? '';
+        $variables['event_url'] = $event_data['url'] ?? '';
+        
+        // Shift information
+        if ($shift_data) {
+            $variables['shift_title'] = $shift_data['title'] ?? '';
+            $variables['shift_description'] = $shift_data['description'] ?? '';
+            $variables['shift_date'] = !empty($shift_data['date']) ? date_i18n(get_option('date_format'), strtotime($shift_data['date'])) : '';
+            $variables['shift_start_time'] = !empty($shift_data['start_time']) ? date_i18n(get_option('time_format'), strtotime($shift_data['date'] . ' ' . $shift_data['start_time'])) : '';
+            $variables['shift_end_time'] = !empty($shift_data['end_time']) ? date_i18n(get_option('time_format'), strtotime($shift_data['date'] . ' ' . $shift_data['end_time'])) : '';
+        }
+        
+        // Additional/special variables
+        $variables['site_name'] = get_bloginfo('name');
+        $variables['current_date'] = date_i18n(get_option('date_format'));
+        
+        // Merge any additional data
+        $variables = array_merge($variables, $additional_data);
+        
+        return $variables;
+    }
+
+    /**
+     * Replace variables in email template
+     */
+    private function replace_email_variables($template, $variables) {
+        foreach ($variables as $key => $value) {
+            $template = str_replace('{' . $key . '}', $value, $template);
+        }
+        return $template;
+    }
+
+    /**
+     * AJAX handler for sending test emails
+     */
+    public function ajax_send_test_email() {
+        check_ajax_referer('lcd_send_test_email', 'nonce');
+        
+        if (!current_user_can('manage_options')) {
+            wp_send_json_error(['message' => __('Permission denied.', 'lcd-events')]);
+            return;
+        }
+        
+        $test_email = sanitize_email($_POST['email'] ?? '');
+        $email_type = sanitize_text_field($_POST['type'] ?? '');
+        
+        if (empty($test_email) || empty($email_type)) {
+            wp_send_json_error(['message' => __('Missing email address or email type.', 'lcd-events')]);
+            return;
+        }
+        
+        // Prepare test data
+        $volunteer_data = [
+            'name' => 'John Doe',
+            'email' => $test_email,
+            'phone' => '(555) 123-4567'
+        ];
+        
+        $event_data = [
+            'title' => 'Test Event - Democratic Rally',
+            'date' => date('Y-m-d', strtotime('+1 week')),
+            'time' => '18:00',
+            'location' => 'Community Center',
+            'address' => '123 Main Street, Centralia, WA 98531',
+            'url' => home_url('/events/test-event/')
+        ];
+        
+        $shift_data = [
+            'title' => 'Event Setup Crew',
+            'description' => 'Help set up chairs, tables, and audio equipment before the event.',
+            'date' => date('Y-m-d', strtotime('+1 week')),
+            'start_time' => '16:00',
+            'end_time' => '18:00'
+        ];
+        
+        $additional_data = [
+            'update_message' => 'We have moved the event to a larger venue to accommodate more attendees. All other details remain the same.'
+        ];
+        
+        // Send test email
+        $sent = $this->send_volunteer_email($email_type, $volunteer_data, $event_data, $shift_data, $additional_data);
+        
+        if ($sent) {
+            wp_send_json_success(['message' => sprintf(__('Test email sent successfully to %s', 'lcd-events'), $test_email)]);
+        } else {
+            wp_send_json_error(['message' => __('Failed to send test email. Please check your email settings.', 'lcd-events')]);
+        }
+    }
+
+    /**
+     * AJAX handler for refreshing ZeptoMail templates
+     */
+    public function ajax_refresh_zeptomail_templates() {
+        check_ajax_referer('lcd_refresh_zeptomail_templates', 'nonce');
+        
+        if (!current_user_can('manage_options')) {
+            wp_send_json_error(['message' => __('Permission denied.', 'lcd-events')]);
+            return;
+        }
+        
+        $templates = $this->get_zeptomail_templates();
+        
+        if (is_wp_error($templates)) {
+            wp_send_json_error(['message' => $templates->get_error_message()]);
+            return;
+        }
+        
+        // Store templates in settings
+        $settings = get_option('lcd_volunteer_email_settings', []);
+        $settings['zeptomail_templates'] = $templates;
+        update_option('lcd_volunteer_email_settings', $settings);
+        
+        wp_send_json_success([
+            'message' => sprintf(__('Successfully loaded %d templates from ZeptoMail', 'lcd-events'), count($templates)),
+            'templates' => $templates
+        ]);
+    }
+
+    /**
+     * AJAX handler for previewing ZeptoMail templates
+     */
+    public function ajax_preview_zeptomail_template() {
+        check_ajax_referer('lcd_preview_zeptomail_template', 'nonce');
+        
+        if (!current_user_can('manage_options')) {
+            wp_send_json_error(['message' => __('Permission denied.', 'lcd-events')]);
+            return;
+        }
+        
+        $template_key = sanitize_text_field($_POST['template_key'] ?? '');
+        $email_type = sanitize_text_field($_POST['email_type'] ?? '');
+        
+        if (empty($template_key)) {
+            wp_send_json_error(['message' => __('Template key is required.', 'lcd-events')]);
+            return;
+        }
+        
+        $template_details = $this->get_zeptomail_template($template_key);
+        
+        if (is_wp_error($template_details)) {
+            wp_send_json_error(['message' => $template_details->get_error_message()]);
+            return;
+        }
+        
+        // Prepare sample merge data
+        $sample_merge_data = $this->get_sample_merge_data($email_type);
+        
+        wp_send_json_success([
+            'template' => $template_details,
+            'sample_merge_data' => $sample_merge_data
+        ]);
+    }
+
+    /**
+     * Get sample merge data for template preview
+     */
+    private function get_sample_merge_data($email_type = '') {
+        $sample_data = [
+            'volunteer_name' => 'John Doe',
+            'volunteer_email' => 'john.doe@example.com',
+            'volunteer_phone' => '(555) 123-4567',
+            'event_title' => 'Democratic Town Hall Meeting',
+            'event_date' => date_i18n(get_option('date_format'), strtotime('+1 week')),
+            'event_time' => date_i18n(get_option('time_format'), strtotime('18:00')),
+            'event_location' => 'Community Center',
+            'event_address' => '123 Main Street, Centralia, WA 98531',
+            'event_url' => home_url('/events/sample-event/'),
+            'shift_title' => 'Event Setup Crew',
+            'shift_description' => 'Help set up chairs, tables, and audio equipment before the event.',
+            'shift_date' => date_i18n(get_option('date_format'), strtotime('+1 week')),
+            'shift_start_time' => date_i18n(get_option('time_format'), strtotime('16:00')),
+            'shift_end_time' => date_i18n(get_option('time_format'), strtotime('18:00')),
+            'site_name' => get_bloginfo('name'),
+            'current_date' => date_i18n(get_option('date_format'))
+        ];
+        
+        // Add specific data based on email type
+        if ($email_type === 'event_update') {
+            $sample_data['update_message'] = 'We have moved the event to a larger venue to accommodate more attendees. All other details remain the same.';
+        }
+        
+        return $sample_data;
+    }
+
+    /**
+     * Send confirmation email when volunteer is assigned
+     */
+    public function send_volunteer_confirmation_email($event_id, $shift_data, $volunteer_data) {
+        $event = get_post($event_id);
+        if (!$event) return false;
+        
+        $event_data = [
+            'title' => $event->post_title,
+            'date' => get_post_meta($event_id, '_event_date', true),
+            'time' => get_post_meta($event_id, '_event_time', true),
+            'location' => get_post_meta($event_id, '_event_location', true),
+            'address' => get_post_meta($event_id, '_event_address', true),
+            'url' => get_permalink($event_id)
+        ];
+        
+        return $this->send_volunteer_email('volunteer_confirmation', $volunteer_data, $event_data, $shift_data);
+    }
+
+    /**
+     * Send cancellation email when volunteer is removed
+     */
+    public function send_volunteer_cancellation_email($event_id, $shift_data, $volunteer_data) {
+        $event = get_post($event_id);
+        if (!$event) return false;
+        
+        $event_data = [
+            'title' => $event->post_title,
+            'date' => get_post_meta($event_id, '_event_date', true),
+            'time' => get_post_meta($event_id, '_event_time', true),
+            'location' => get_post_meta($event_id, '_event_location', true),
+            'address' => get_post_meta($event_id, '_event_address', true),
+            'url' => get_permalink($event_id)
+        ];
+        
+        return $this->send_volunteer_email('volunteer_cancellation', $volunteer_data, $event_data, $shift_data);
+    }
+
+    /**
+     * Send reminder emails for volunteers with shifts tomorrow
+     */
+    public function send_volunteer_reminders() {
+        global $wpdb;
+        
+        $table_name = $wpdb->prefix . 'lcd_volunteer_signups';
+        $tomorrow = date('Y-m-d', strtotime('+1 day'));
+        
+        // Get all volunteer shifts for tomorrow
+        $shifts_tomorrow = $wpdb->get_results($wpdb->prepare(
+            "SELECT vs.*, p.post_title as event_title 
+             FROM $table_name vs 
+             LEFT JOIN {$wpdb->posts} p ON vs.event_id = p.ID 
+             WHERE vs.status = 'confirmed' 
+             AND p.post_status = 'publish'
+             AND EXISTS (
+                 SELECT 1 FROM {$wpdb->postmeta} pm 
+                 WHERE pm.post_id = vs.event_id 
+                 AND pm.meta_key = '_volunteer_shifts'
+                 AND pm.meta_value LIKE %s
+             )",
+            '%"date":"' . $tomorrow . '"%'
+        ));
+        
+        $sent_count = 0;
+        $failed_count = 0;
+        
+        foreach ($shifts_tomorrow as $signup) {
+            $volunteer_shifts = get_post_meta($signup->event_id, '_volunteer_shifts', true);
+            $shift_details = $volunteer_shifts[$signup->shift_index] ?? [];
+            
+            // Only send if this shift is actually tomorrow
+            if (($shift_details['date'] ?? '') === $tomorrow) {
+                $volunteer_data = [
+                    'name' => $signup->volunteer_name,
+                    'email' => $signup->volunteer_email,
+                    'phone' => $signup->volunteer_phone
+                ];
+                
+                $event_data = [
+                    'title' => $signup->event_title,
+                    'date' => get_post_meta($signup->event_id, '_event_date', true),
+                    'time' => get_post_meta($signup->event_id, '_event_time', true),
+                    'location' => get_post_meta($signup->event_id, '_event_location', true),
+                    'address' => get_post_meta($signup->event_id, '_event_address', true),
+                    'url' => get_permalink($signup->event_id)
+                ];
+                
+                if ($this->send_volunteer_email('volunteer_reminder', $volunteer_data, $event_data, $shift_details)) {
+                    $sent_count++;
+                } else {
+                    $failed_count++;
+                    error_log("LCD Events: Failed to send reminder email to {$signup->volunteer_email} for event {$signup->event_id}");
+                }
+            }
+        }
+        
+        return [
+            'sent' => $sent_count,
+            'failed' => $failed_count,
+            'total' => count($shifts_tomorrow)
+        ];
+    }
+
+    /**
+     * Send event update email to all volunteers for an event
+     */
+    public function send_event_update_emails($event_id, $update_message) {
+        $event = get_post($event_id);
+        if (!$event) return false;
+        
+        $all_signups = $this->get_volunteer_signups($event_id);
+        if (empty($all_signups)) return false;
+        
+        $event_data = [
+            'title' => $event->post_title,
+            'date' => get_post_meta($event_id, '_event_date', true),
+            'time' => get_post_meta($event_id, '_event_time', true),
+            'location' => get_post_meta($event_id, '_event_location', true),
+            'address' => get_post_meta($event_id, '_event_address', true),
+            'url' => get_permalink($event_id)
+        ];
+        
+        $volunteer_shifts = get_post_meta($event_id, '_volunteer_shifts', true);
+        $sent_count = 0;
+        $failed_count = 0;
+        
+        foreach ($all_signups as $signup) {
+            if ($signup->status !== 'confirmed') continue;
+            
+            $shift_details = $volunteer_shifts[$signup->shift_index] ?? [];
+            
+            $volunteer_data = [
+                'name' => $signup->volunteer_name,
+                'email' => $signup->volunteer_email,
+                'phone' => $signup->volunteer_phone
+            ];
+            
+            $additional_data = [
+                'update_message' => $update_message
+            ];
+            
+            if ($this->send_volunteer_email('event_update', $volunteer_data, $event_data, $shift_details, $additional_data)) {
+                $sent_count++;
+            } else {
+                $failed_count++;
+                error_log("LCD Events: Failed to send update email to {$signup->volunteer_email} for event {$event_id}");
+            }
+        }
+        
+        return [
+            'sent' => $sent_count,
+            'failed' => $failed_count,
+            'total' => count($all_signups)
+        ];
+    }
+
+    /**
+     * Setup cron job for sending reminder emails
+     */
+    public function setup_reminder_cron() {
+        if (!wp_next_scheduled('lcd_send_volunteer_reminders')) {
+            wp_schedule_event(strtotime('18:00:00'), 'daily', 'lcd_send_volunteer_reminders');
+        }
+        
+        add_action('lcd_send_volunteer_reminders', [$this, 'send_volunteer_reminders']);
+    }
+
+    /**
+     * Clear cron job for reminder emails
+     */
+    public function clear_reminder_cron() {
+        wp_clear_scheduled_hook('lcd_send_volunteer_reminders');
+    }
+
+    /**
+     * Get email sending statistics
+     */
+    public function get_email_stats() {
+        $stats = get_option('lcd_volunteer_email_stats', [
+            'confirmation_emails_sent' => 0,
+            'cancellation_emails_sent' => 0,
+            'reminder_emails_sent' => 0,
+            'update_emails_sent' => 0,
+            'last_reminder_run' => null
+        ]);
+        
+        return $stats;
+    }
+
+    /**
+     * Update email statistics
+     */
+    private function update_email_stats($email_type, $increment = 1) {
+        $stats = $this->get_email_stats();
+        $stat_key = $email_type . '_emails_sent';
+        
+        if (isset($stats[$stat_key])) {
+            $stats[$stat_key] += $increment;
+            update_option('lcd_volunteer_email_stats', $stats);
+        }
     }
 }
