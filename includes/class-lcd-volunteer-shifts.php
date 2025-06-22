@@ -1833,9 +1833,9 @@ class LCD_Volunteer_Shifts {
         );
 
         add_settings_field(
-            'zeptomail_domain',
-            __('Mail Agent Domain', 'lcd-events'),
-            [$this, 'zeptomail_domain_field_callback'],
+            'zeptomail_mailagent_alias',
+            __('Mail Agent Alias', 'lcd-events'),
+            [$this, 'zeptomail_mailagent_alias_field_callback'],
             'lcd_volunteer_email_settings',
             'zeptomail_api'
         );
@@ -2347,11 +2347,11 @@ Lewis County Democrats', 'lcd-events')
         echo '<p class="description">' . __('Get this from ZeptoMail Dashboard → Mail Agents → Send Mail Token', 'lcd-events') . '</p>';
     }
 
-    public function zeptomail_domain_field_callback() {
+    public function zeptomail_mailagent_alias_field_callback() {
         $options = get_option('lcd_volunteer_email_settings', []);
-        $value = $options['zeptomail_domain'] ?? '';
-        echo '<input type="text" name="lcd_volunteer_email_settings[zeptomail_domain]" value="' . esc_attr($value) . '" class="regular-text" placeholder="' . esc_attr__('e.g., smtp.zeptomail.com', 'lcd-events') . '">';
-        echo '<p class="description">' . __('Your ZeptoMail mail agent domain (usually smtp.zeptomail.com or smtp.zeptomail.eu)', 'lcd-events') . '</p>';
+        $value = $options['zeptomail_mailagent_alias'] ?? '';
+        echo '<input type="text" name="lcd_volunteer_email_settings[zeptomail_mailagent_alias]" value="' . esc_attr($value) . '" class="regular-text" placeholder="' . esc_attr__('e.g., my-mail-agent', 'lcd-events') . '">';
+        echo '<p class="description">' . __('Unique alias for your Mail Agent, found in ZeptoMail Dashboard → Mail Agents → Setup Info', 'lcd-events') . '</p>';
     }
 
     public function enable_zeptomail_field_callback() {
@@ -2415,7 +2415,7 @@ Lewis County Democrats', 'lcd-events')
         
         // Sanitize ZeptoMail API settings
         $sanitized['zeptomail_api_token'] = sanitize_text_field($input['zeptomail_api_token'] ?? '');
-        $sanitized['zeptomail_domain'] = sanitize_text_field($input['zeptomail_domain'] ?? '');
+        $sanitized['zeptomail_mailagent_alias'] = sanitize_text_field($input['zeptomail_mailagent_alias'] ?? '');
         $sanitized['enable_zeptomail'] = isset($input['enable_zeptomail']) ? 1 : 0;
         
         // Sanitize general settings
@@ -2445,18 +2445,20 @@ Lewis County Democrats', 'lcd-events')
     public function get_zeptomail_templates() {
         $settings = get_option('lcd_volunteer_email_settings', []);
         $api_token = $settings['zeptomail_api_token'] ?? '';
-        $domain = $settings['zeptomail_domain'] ?? 'smtp.zeptomail.com';
+        $mailagent_alias = $settings['zeptomail_mailagent_alias'] ?? '';
         
-        if (empty($api_token)) {
-            return new WP_Error('missing_token', __('ZeptoMail API token is required', 'lcd-events'));
+        if (empty($api_token) || empty($mailagent_alias)) {
+            return new WP_Error('missing_credentials', __('ZeptoMail API token and Mail Agent alias are required', 'lcd-events'));
         }
         
-        $url = "https://api.{$domain}/v1/email/templates";
+        // Use the correct ZeptoMail API endpoint with mail agent alias
+        $url = "https://api.zeptomail.com/v1.1/mailagents/{$mailagent_alias}/templates";
         
         $response = wp_remote_get($url, [
             'headers' => [
                 'Authorization' => 'Zoho-enczapikey ' . $api_token,
                 'Content-Type' => 'application/json',
+                'Accept' => 'application/json',
             ],
             'timeout' => 30
         ]);
@@ -2465,11 +2467,18 @@ Lewis County Democrats', 'lcd-events')
             return $response;
         }
         
+        $response_code = wp_remote_retrieve_response_code($response);
         $body = wp_remote_retrieve_body($response);
         $data = json_decode($body, true);
         
-        if (wp_remote_retrieve_response_code($response) !== 200) {
-            return new WP_Error('api_error', $data['message'] ?? __('Unknown API error', 'lcd-events'));
+        if ($response_code !== 200) {
+            $error_message = 'Unknown API error';
+            if (isset($data['message'])) {
+                $error_message = $data['message'];
+            } elseif (isset($data['error_info'][0]['error_message'])) {
+                $error_message = $data['error_info'][0]['error_message'];
+            }
+            return new WP_Error('api_error', sprintf(__('ZeptoMail API Error (%d): %s', 'lcd-events'), $response_code, $error_message));
         }
         
         return $data['data'] ?? [];
@@ -2481,18 +2490,20 @@ Lewis County Democrats', 'lcd-events')
     public function get_zeptomail_template($template_key) {
         $settings = get_option('lcd_volunteer_email_settings', []);
         $api_token = $settings['zeptomail_api_token'] ?? '';
-        $domain = $settings['zeptomail_domain'] ?? 'smtp.zeptomail.com';
+        $mailagent_alias = $settings['zeptomail_mailagent_alias'] ?? '';
         
-        if (empty($api_token) || empty($template_key)) {
-            return new WP_Error('missing_params', __('API token and template key are required', 'lcd-events'));
+        if (empty($api_token) || empty($mailagent_alias) || empty($template_key)) {
+            return new WP_Error('missing_params', __('API token, Mail Agent alias, and template key are required', 'lcd-events'));
         }
         
-        $url = "https://api.{$domain}/v1/email/templates/{$template_key}";
+        // Use the correct ZeptoMail API endpoint for template details
+        $url = "https://api.zeptomail.com/v1.1/mailagents/{$mailagent_alias}/templates/{$template_key}";
         
         $response = wp_remote_get($url, [
             'headers' => [
                 'Authorization' => 'Zoho-enczapikey ' . $api_token,
                 'Content-Type' => 'application/json',
+                'Accept' => 'application/json',
             ],
             'timeout' => 30
         ]);
@@ -2501,11 +2512,18 @@ Lewis County Democrats', 'lcd-events')
             return $response;
         }
         
+        $response_code = wp_remote_retrieve_response_code($response);
         $body = wp_remote_retrieve_body($response);
         $data = json_decode($body, true);
         
-        if (wp_remote_retrieve_response_code($response) !== 200) {
-            return new WP_Error('api_error', $data['message'] ?? __('Unknown API error', 'lcd-events'));
+        if ($response_code !== 200) {
+            $error_message = 'Unknown API error';
+            if (isset($data['message'])) {
+                $error_message = $data['message'];
+            } elseif (isset($data['error_info'][0]['error_message'])) {
+                $error_message = $data['error_info'][0]['error_message'];
+            }
+            return new WP_Error('api_error', sprintf(__('ZeptoMail API Error (%d): %s', 'lcd-events'), $response_code, $error_message));
         }
         
         return $data['data'] ?? [];
@@ -2517,7 +2535,6 @@ Lewis County Democrats', 'lcd-events')
     public function send_zeptomail_template($to_email, $template_key, $merge_data = [], $from_name = '', $from_email = '', $reply_to = '') {
         $settings = get_option('lcd_volunteer_email_settings', []);
         $api_token = $settings['zeptomail_api_token'] ?? '';
-        $domain = $settings['zeptomail_domain'] ?? 'smtp.zeptomail.com';
         
         if (empty($api_token) || empty($template_key) || empty($to_email)) {
             error_log('ZeptoMail: Missing required parameters');
@@ -2529,7 +2546,8 @@ Lewis County Democrats', 'lcd-events')
         $from_email = $from_email ?: ($settings['from_email'] ?? get_option('admin_email'));
         $reply_to = $reply_to ?: ($settings['reply_to'] ?? $from_email);
         
-        $url = "https://api.{$domain}/v1/email/template";
+        // Use the correct ZeptoMail API endpoint for sending emails
+        $url = "https://api.zeptomail.com/v1.1/email/template";
         
         $payload = [
             'template_key' => $template_key,
@@ -2558,6 +2576,7 @@ Lewis County Democrats', 'lcd-events')
             'headers' => [
                 'Authorization' => 'Zoho-enczapikey ' . $api_token,
                 'Content-Type' => 'application/json',
+                'Accept' => 'application/json',
             ],
             'body' => json_encode($payload),
             'timeout' => 30
@@ -2573,7 +2592,13 @@ Lewis County Democrats', 'lcd-events')
         $data = json_decode($body, true);
         
         if ($response_code !== 200) {
-            error_log('ZeptoMail API Error: ' . ($data['message'] ?? 'Unknown error'));
+            $error_message = 'Unknown error';
+            if (isset($data['message'])) {
+                $error_message = $data['message'];
+            } elseif (isset($data['error_info'][0]['error_message'])) {
+                $error_message = $data['error_info'][0]['error_message'];
+            }
+            error_log('ZeptoMail API Error (' . $response_code . '): ' . $error_message);
             return false;
         }
         
