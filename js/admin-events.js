@@ -249,27 +249,115 @@ jQuery(document).ready(function($) {
             return;
         }
         
-        // Admin page only - get template for specific event
-        const template = $(`#volunteer-shift-template-${eventId} .volunteer-shift-item`).clone();
         const container = $(`#volunteer-shifts-container-${eventId}`);
         
-        if (template.length === 0) {
-            console.error('Template not found for adding new shift');
+        if (container.length === 0) {
+            console.error('Container not found for event ID:', eventId);
             return;
         }
         
-        const html = template.prop('outerHTML')
-            .replace(/__INDEX__/g, shiftIndex);
+        // Generate new shift HTML directly
+        const newShiftHtml = `
+            <div class="volunteer-shift-item new-shift" data-index="${shiftIndex}" data-event-id="${eventId}">
+                <div class="shift-summary" data-shift="${shiftIndex}">
+                    <div class="shift-summary-content">
+                        <div class="shift-title-summary">
+                            <strong class="shift-placeholder">${lcdEventsAdmin.text.new_shift}</strong>
+                        </div>
+                        <div class="shift-meta-summary">
+                            <span class="shift-placeholder">${lcdEventsAdmin.text.enter_details}</span>
+                        </div>
+                    </div>
+                    <div class="shift-summary-actions">
+                        <button type="button" class="button button-small toggle-shift-details" data-expanded="true">
+                            <span class="dashicons dashicons-arrow-up-alt2"></span>
+                            ${lcdEventsAdmin.text.edit_notes || 'Edit'}
+                        </button>
+                        <button type="button" class="button button-small button-link-delete remove-shift">
+                            <span class="dashicons dashicons-trash"></span>
+                            Delete
+                        </button>
+                    </div>
+                </div>
+                
+                <div class="shift-details">
+                    <div class="shift-form-row">
+                        <div class="shift-form-col">
+                            <label for="volunteer_shifts_${eventId}_${shiftIndex}_title">Shift Title:</label>
+                            <input type="text" 
+                                   id="volunteer_shifts_${eventId}_${shiftIndex}_title" 
+                                   name="volunteer_shifts[${shiftIndex}][title]" 
+                                   value="" 
+                                   placeholder="e.g., Event Setup Crew"
+                                   class="regular-text">
+                        </div>
+                        <div class="shift-form-col">
+                            <label for="volunteer_shifts_${eventId}_${shiftIndex}_max_volunteers">Max Volunteers:</label>
+                            <input type="number" 
+                                   id="volunteer_shifts_${eventId}_${shiftIndex}_max_volunteers" 
+                                   name="volunteer_shifts[${shiftIndex}][max_volunteers]" 
+                                   value="" 
+                                   placeholder="Unlimited"
+                                   class="small-text">
+                        </div>
+                    </div>
+                    
+                    <div class="shift-form-row">
+                        <div class="shift-form-col shift-form-col-full">
+                            <label for="volunteer_shifts_${eventId}_${shiftIndex}_description">Description:</label>
+                            <textarea id="volunteer_shifts_${eventId}_${shiftIndex}_description" 
+                                      name="volunteer_shifts[${shiftIndex}][description]" 
+                                      rows="3" 
+                                      class="large-text"
+                                      placeholder="What will volunteers be doing?"></textarea>
+                        </div>
+                    </div>
+
+                    <div class="shift-form-row shift-datetime-row">
+                        <div class="shift-form-col">
+                            <label for="volunteer_shifts_${eventId}_${shiftIndex}_date">Date:</label>
+                            <input type="date" 
+                                   id="volunteer_shifts_${eventId}_${shiftIndex}_date" 
+                                   name="volunteer_shifts[${shiftIndex}][date]" 
+                                   value="">
+                        </div>
+                        <div class="shift-form-col">
+                            <label for="volunteer_shifts_${eventId}_${shiftIndex}_start_time">Start Time:</label>
+                            <input type="time" 
+                                   id="volunteer_shifts_${eventId}_${shiftIndex}_start_time" 
+                                   name="volunteer_shifts[${shiftIndex}][start_time]" 
+                                   value="">
+                        </div>
+                        <div class="shift-form-col">
+                            <label for="volunteer_shifts_${eventId}_${shiftIndex}_end_time">End Time:</label>
+                            <input type="time" 
+                                   id="volunteer_shifts_${eventId}_${shiftIndex}_end_time" 
+                                   name="volunteer_shifts[${shiftIndex}][end_time]" 
+                                   value="">
+                        </div>
+                    </div>
+
+                    <div class="assign-volunteer-section">
+                        <h4 class="assign-volunteer-title">Assign Volunteer</h4>
+                        <div class="assign-volunteer-controls">
+                            <select id="assign_volunteer_${eventId}_${shiftIndex}" class="assign-volunteer-select" data-event-id="${eventId}" data-shift-index="${shiftIndex}" data-shift-title="">
+                                <option value="">Search for a person to assign...</option>
+                            </select>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        `;
         
-        const newShift = $(html);
+        const newShift = $(newShiftHtml);
         
-        // Insert the new shift at the end of the container (before the closing </form> tag)
+        // Insert the new shift at the end of the container
         container.append(newShift);
         
-        newShift.find('.shift-details').show();
-        newShift.find('.toggle-shift-details').data('expanded', true)
-            .find('.dashicons').removeClass('dashicons-arrow-down-alt2').addClass('dashicons-arrow-up-alt2');
+        // The shift details are already visible for new shifts
+        newShift.find('.shift-summary').addClass('shift-summary-expanded');
 
+        // Initialize person search for the new shift
         initShiftPersonSearch(newShift); 
         
         // Focus on the title field
@@ -615,6 +703,20 @@ jQuery(document).ready(function($) {
     
     $(document).on('input change', '.shift-details input, .shift-details textarea', function() {
         updateShiftSummaries();
+    });
+    
+    // Update shift summary in real-time for new shifts
+    $(document).on('input', '.new-shift input[name*="[title]"]', function() {
+        const shiftItem = $(this).closest('.volunteer-shift-item');
+        const title = $(this).val() || lcdEventsAdmin.text.new_shift || 'New Shift';
+        
+        // Remove placeholder styling if title is entered
+        if ($(this).val().trim()) {
+            shiftItem.find('.shift-title-summary strong').removeClass('shift-placeholder').text(title);
+            shiftItem.removeClass('new-shift'); // Remove new-shift class once title is entered
+        } else {
+            shiftItem.find('.shift-title-summary strong').addClass('shift-placeholder').text(lcdEventsAdmin.text.new_shift || 'New Shift');
+        }
     });
     
     // Auto-fill shift date from event date (admin page only)
