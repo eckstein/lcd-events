@@ -337,6 +337,14 @@ jQuery(document).ready(function($) {
                         </div>
                     </div>
 
+                    <div class="shift-actions">
+                        <button type="button" class="button button-primary save-shift-btn" data-event-id="${eventId}" data-shift-index="${shiftIndex}">
+                            <span class="dashicons dashicons-yes"></span>
+                            Save Shift
+                        </button>
+                        <span class="shift-save-status" style="display: none;"></span>
+                    </div>
+
                     <div class="assign-volunteer-section">
                         <h4 class="assign-volunteer-title">Assign Volunteer</h4>
                         <div class="assign-volunteer-controls">
