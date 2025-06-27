@@ -10,6 +10,7 @@ if (!defined('ABSPATH')) exit;
 class LCD_Volunteer_Shifts {
 
     private static $instance;
+    private $last_email_error = null;
 
     public static function get_instance() {
         if (null === self::$instance) {
@@ -29,15 +30,19 @@ class LCD_Volunteer_Shifts {
         add_action('wp_ajax_lcd_toggle_volunteer_confirmed', [$this, 'ajax_toggle_volunteer_confirmed']);
         add_action('wp_ajax_lcd_export_volunteers_csv', [$this, 'ajax_export_volunteers_csv']);
         add_action('wp_ajax_lcd_export_volunteers_pdf', [$this, 'ajax_export_volunteers_pdf']);
-        add_action('admin_menu', [$this, 'add_volunteer_shifts_page']);
-        add_action('admin_head', [$this, 'volunteer_shifts_admin_styles']);
+        // Frontend volunteer opportunity signup
+        add_action('wp_ajax_lcd_volunteer_opportunity_signup', [$this, 'ajax_volunteer_opportunity_signup']);
+        add_action('wp_ajax_nopriv_lcd_volunteer_opportunity_signup', [$this, 'ajax_volunteer_opportunity_signup']);
         
-        // Email template management
-        add_action('admin_menu', [$this, 'add_email_settings_page']);
-        add_action('admin_init', [$this, 'register_email_settings']);
-        add_action('wp_ajax_lcd_send_test_email', [$this, 'ajax_send_test_email']);
-        add_action('wp_ajax_lcd_refresh_zeptomail_templates', [$this, 'ajax_refresh_zeptomail_templates']);
-        add_action('wp_ajax_lcd_preview_zeptomail_template', [$this, 'ajax_preview_zeptomail_template']);
+        // Frontend modal login
+        add_action('wp_ajax_lcd_volunteer_login', [$this, 'ajax_volunteer_login']);
+        add_action('wp_ajax_nopriv_lcd_volunteer_login', [$this, 'ajax_volunteer_login']);
+
+
+
+        
+        // Individual shift saving
+        add_action('wp_ajax_lcd_save_individual_shift', [$this, 'ajax_save_individual_shift']);
         
         // Setup reminder cron job
         add_action('init', [$this, 'setup_reminder_cron']);
@@ -45,40 +50,16 @@ class LCD_Volunteer_Shifts {
 
     /**
      * Save volunteer shifts meta data.
+     * 
+     * Note: This method no longer handles meta box form data since the meta box
+     * is now read-only. Volunteer shifts are managed through the admin page interface.
      *
      * @param int $post_id The ID of the post being saved.
      */
     public function save_volunteer_shifts_meta($post_id) {
-        // Check if this is an autosave or if user can't edit
-        if (defined('DOING_AUTOSAVE') && DOING_AUTOSAVE) {
-            return;
-        }
-
-        if (!current_user_can('edit_post', $post_id)) {
-            return;
-        }
-
-        // Save volunteer shifts
-        if (isset($_POST['lcd_volunteer_shifts_nonce']) && wp_verify_nonce($_POST['lcd_volunteer_shifts_nonce'], 'lcd_volunteer_shifts')) {
-            $volunteer_shifts = array();
-            
-            if (isset($_POST['volunteer_shifts']) && is_array($_POST['volunteer_shifts'])) {
-                foreach ($_POST['volunteer_shifts'] as $index => $shift) {
-                    if (!empty($shift['title'])) { // Only save shifts with a title
-                        $volunteer_shifts[] = array(
-                            'title' => sanitize_text_field($shift['title']),
-                            'description' => sanitize_textarea_field($shift['description'] ?? ''),
-                            'date' => sanitize_text_field($shift['date'] ?? ''),
-                            'start_time' => sanitize_text_field($shift['start_time'] ?? ''),
-                            'end_time' => sanitize_text_field($shift['end_time'] ?? ''),
-                            'max_volunteers' => intval($shift['max_volunteers'] ?? 0)
-                        );
-                    }
-                }
-            }
-            
-            update_post_meta($post_id, '_volunteer_shifts', $volunteer_shifts);
-        }
+        // The meta box is now read-only, so we don't process any form data here.
+        // All volunteer shift management happens through the dedicated admin page.
+        return;
     }
 
     /**
@@ -127,11 +108,9 @@ class LCD_Volunteer_Shifts {
     }
 
     /**
-     * Volunteer Shifts Meta Box Callback
+     * Volunteer Shifts Meta Box Callback (Read-Only Summary)
      */
     public function volunteer_shifts_callback($post) {
-        wp_nonce_field('lcd_volunteer_shifts', 'lcd_volunteer_shifts_nonce');
-
         $volunteer_shifts = get_post_meta($post->ID, '_volunteer_shifts', true);
         if (!is_array($volunteer_shifts)) {
             $volunteer_shifts = array();
@@ -144,358 +123,59 @@ class LCD_Volunteer_Shifts {
             $signups_by_shift[$signup->shift_index][] = $signup;
         }
         
-        // Show export options if there are signups
         $total_signups = count($all_signups);
         ?>
-        <div class="lcd-volunteer-shifts-meta">
-            <?php if ($total_signups > 0) : ?>
-                <div class="volunteer-export-section">
-                    <h4><?php _e('Export Volunteer List', 'lcd-events'); ?></h4>
-                    <p><?php printf(__('Total volunteers: %d', 'lcd-events'), $total_signups); ?></p>
-                    <div class="export-buttons">
-                        <button type="button" class="button button-secondary export-volunteers-csv" data-event-id="<?php echo $post->ID; ?>">
-                            <span class="dashicons dashicons-media-spreadsheet"></span>
-                            <?php _e('Export to CSV', 'lcd-events'); ?>
-                        </button>
-                        <button type="button" class="button button-secondary export-volunteers-pdf" data-event-id="<?php echo $post->ID; ?>">
-                            <span class="dashicons dashicons-pdf"></span>
-                            <?php _e('Export to PDF', 'lcd-events'); ?>
-                        </button>
-                    </div>
-                </div>
-            <?php endif; ?>
-            <div id="volunteer-shifts-container">
-                <?php if (!empty($volunteer_shifts)) : ?>
+        <div class="lcd-volunteer-shifts-meta lcd-volunteer-shifts-readonly">
+            <div class="volunteer-shifts-summary-header">
+                <a href="<?php echo admin_url('edit.php?post_type=event&page=volunteer-shifts#event-' . $post->ID); ?>" 
+                   class="button button-primary">
+                    <?php _e('Manage Volunteer Shifts', 'lcd-events'); ?>
+                </a>
+                <?php if ($total_signups > 0) : ?>
+                    <button type="button" class="button button-secondary export-volunteers-csv" data-event-id="<?php echo $post->ID; ?>">
+                        <?php _e('Export Volunteers', 'lcd-events'); ?>
+                    </button>
+                <?php endif; ?>
+            </div>
+            <?php if (!empty($volunteer_shifts)) : ?>
+                <ul class="volunteer-shifts-list">
                     <?php foreach ($volunteer_shifts as $index => $shift) : ?>
                         <?php 
                         $shift_signups = $signups_by_shift[$index] ?? array();
                         $signup_count = count($shift_signups);
                         $max_volunteers = intval($shift['max_volunteers'] ?? 0);
                         
-                        // Format date and time for display
-                        $formatted_date = !empty($shift['date']) ? date_i18n('M j, Y', strtotime($shift['date'])) : '';
-                        $formatted_time = '';
-                        if (!empty($shift['start_time']) && !empty($shift['end_time'])) {
-                            $formatted_time = date_i18n('g:i A', strtotime($shift['date'] . ' ' . $shift['start_time'])) . ' - ' . 
-                                             date_i18n('g:i A', strtotime($shift['date'] . ' ' . $shift['end_time']));
-                        } elseif (!empty($shift['start_time'])) {
-                            $formatted_time = date_i18n('g:i A', strtotime($shift['date'] . ' ' . $shift['start_time']));
+                        // Format basic info
+                        $shift_info = array();
+                        if (!empty($shift['date'])) {
+                            $shift_info[] = date_i18n('M j', strtotime($shift['date']));
+                        }
+                        if (!empty($shift['start_time'])) {
+                            $shift_info[] = date_i18n('g:i A', strtotime($shift['date'] . ' ' . $shift['start_time']));
+                        }
+                        
+                        $volunteer_count = '';
+                        if ($max_volunteers > 0) {
+                            $volunteer_count = "({$signup_count}/{$max_volunteers} volunteers)";
+                        } else {
+                            $volunteer_count = "({$signup_count} volunteers)";
                         }
                         ?>
-                        <div class="volunteer-shift-item" data-index="<?php echo $index; ?>">
-                            <div class="shift-summary" data-shift="<?php echo $index; ?>">
-                                <div class="shift-summary-content">
-                                    <div class="shift-title-summary">
-                                        <strong><?php echo esc_html($shift['title'] ?: __('Untitled Shift', 'lcd-events')); ?></strong>
-                                    </div>
-                                    <div class="shift-meta-summary">
-                                        <?php if ($formatted_date) : ?>
-                                            <span class="shift-date-summary"><?php echo esc_html($formatted_date); ?></span>
-                                        <?php endif; ?>
-                                        <?php if ($formatted_time) : ?>
-                                            <span class="shift-time-summary"><?php echo esc_html($formatted_time); ?></span>
-                                        <?php endif; ?>
-                                        <?php if ($signup_count > 0) : ?>
-                                            <span class="shift-signups-summary">
-                                                <?php 
-                                                if ($max_volunteers > 0) {
-                                                    printf(__('%d / %d volunteers', 'lcd-events'), $signup_count, $max_volunteers);
-                                                } else {
-                                                    printf(__('%d volunteers', 'lcd-events'), $signup_count);
-                                                }
-                                                ?>
-                                            </span>
-                                        <?php endif; ?>
-                                    </div>
-                                </div>
-                                <div class="shift-summary-actions">
-                                    <button type="button" class="button button-small toggle-shift-details" data-expanded="false">
-                                        <span class="dashicons dashicons-arrow-down-alt2"></span>
-                                        <?php _e('Details', 'lcd-events'); ?>
-                                    </button>
-                                    <button type="button" class="button button-small remove-shift">
-                                        <span class="dashicons dashicons-trash"></span>
-                                        <?php _e('Remove', 'lcd-events'); ?>
-                                    </button>
-                                </div>
-                            </div>
-                            
-                            <div class="shift-details" style="display: none;">
-                                <div class="shift-form-row">
-                                    <div class="shift-form-col">
-                                        <label for="volunteer_shifts_<?php echo $index; ?>_title"><?php _e('Shift Title:', 'lcd-events'); ?></label>
-                                        <input type="text" 
-                                               id="volunteer_shifts_<?php echo $index; ?>_title" 
-                                               name="volunteer_shifts[<?php echo $index; ?>][title]" 
-                                               value="<?php echo esc_attr($shift['title'] ?? ''); ?>" 
-                                               placeholder="<?php _e('e.g., Event Setup Crew', 'lcd-events'); ?>">
-                                    </div>
-                                    <div class="shift-form-col">
-                                        <label for="volunteer_shifts_<?php echo $index; ?>_max_volunteers"><?php _e('Max Volunteers:', 'lcd-events'); ?></label>
-                                        <input type="number" 
-                                               id="volunteer_shifts_<?php echo $index; ?>_max_volunteers" 
-                                               name="volunteer_shifts[<?php echo $index; ?>][max_volunteers]" 
-                                               value="<?php echo esc_attr($shift['max_volunteers'] ?? ''); ?>" 
-                                               placeholder="<?php _e('Unlimited', 'lcd-events'); ?>">
-                                    </div>
-                                </div>
-                                
-                                <div class="shift-form-row">
-                                    <div class="shift-form-col">
-                                        <label for="volunteer_shifts_<?php echo $index; ?>_description"><?php _e('Description:', 'lcd-events'); ?></label>
-                                        <textarea id="volunteer_shifts_<?php echo $index; ?>_description" 
-                                                  name="volunteer_shifts[<?php echo $index; ?>][description]" 
-                                                  rows="2" 
-                                                  placeholder="<?php _e('What will volunteers be doing?', 'lcd-events'); ?>"><?php echo esc_textarea($shift['description'] ?? ''); ?></textarea>
-                                    </div>
-                                </div>
-                                
-                                <div class="shift-form-row shift-datetime-row">
-                                    <div class="shift-form-col">
-                                        <label for="volunteer_shifts_<?php echo $index; ?>_date"><?php _e('Date:', 'lcd-events'); ?></label>
-                                        <input type="date" 
-                                               id="volunteer_shifts_<?php echo $index; ?>_date" 
-                                               name="volunteer_shifts[<?php echo $index; ?>][date]" 
-                                               value="<?php echo esc_attr($shift['date'] ?? ''); ?>" 
-                                               class="shift-date">
-                                    </div>
-                                    <div class="shift-form-col">
-                                        <label for="volunteer_shifts_<?php echo $index; ?>_start_time"><?php _e('Start Time:', 'lcd-events'); ?></label>
-                                        <input type="time" 
-                                               id="volunteer_shifts_<?php echo $index; ?>_start_time" 
-                                               name="volunteer_shifts[<?php echo $index; ?>][start_time]" 
-                                               value="<?php echo esc_attr($shift['start_time'] ?? ''); ?>" 
-                                               class="shift-time">
-                                    </div>
-                                    <div class="shift-form-col">
-                                        <label for="volunteer_shifts_<?php echo $index; ?>_end_time"><?php _e('End Time:', 'lcd-events'); ?></label>
-                                        <input type="time" 
-                                               id="volunteer_shifts_<?php echo $index; ?>_end_time" 
-                                               name="volunteer_shifts[<?php echo $index; ?>][end_time]" 
-                                               value="<?php echo esc_attr($shift['end_time'] ?? ''); ?>" 
-                                               class="shift-time">
-                                    </div>
-                                </div>
-                                
-                                <?php if (!empty($shift_signups)) : ?>
-                                    <div class="shift-signups">
-                                        <h5>
-                                            <span class="dashicons dashicons-groups"></span>
-                                            <?php _e('Registered Volunteers:', 'lcd-events'); ?>
-                                            <span class="signups-count">(<?php echo count($shift_signups); ?>)</span>
-                                        </h5>
-                                        <div class="signups-list">
-                                            <?php foreach ($shift_signups as $signup) : ?>
-                                                <?php 
-                                                $person_name = esc_html($signup->volunteer_name);
-                                                $person_email = esc_html($signup->volunteer_email);
-                                                $person_phone = esc_html($signup->volunteer_phone ?? '');
-                                                $person_notes = esc_html($signup->volunteer_notes ?? '');
-                                                $person_id_attr = isset($signup->person_id) && $signup->person_id ? 'data-person-id="' . esc_attr($signup->person_id) . '"' : '';
-                                                $signup_id_attr = 'data-signup-id="' . esc_attr($signup->id) . '"';
-                                                
-                                                // If linked to an lcd_person, fetch their latest details
-                                                if (isset($signup->person_id) && $signup->person_id) {
-                                                    $person_post = get_post($signup->person_id);
-                                                    if ($person_post) {
-                                                        $person_name = esc_html($person_post->post_title);
-                                                        $person_email = esc_html(get_post_meta($signup->person_id, '_lcd_person_email', true));
-                                                        $person_phone = esc_html(get_post_meta($signup->person_id, '_lcd_person_phone', true));
-                                                        // Notes are from the signup itself, not the person profile generally.
-                                                    }
-                                                }
-                                                ?>
-                                                <div class="signup-item-compact status-<?php echo esc_attr($signup->status); ?>" <?php echo $person_id_attr; ?> <?php echo $signup_id_attr; ?>>
-                                                    <div class="signup-header">
-                                                        <div class="signup-primary">
-                                                            <strong><?php echo $person_name; ?></strong>
-                                                            <span class="signup-contact">
-                                                                <?php echo $person_email; ?>
-                                                                <?php if (!empty($person_phone)) : ?>
-                                                                    • <?php echo $person_phone; ?>
-                                                                <?php endif; ?>
-                                                            </span>
-                                                        </div>
-                                                        <div class="signup-date"><?php echo date_i18n('M j, Y \a\t g:i A', strtotime($signup->signup_date)); ?></div>
-                                                    </div>
-                                                    <?php /* Show notes for any signup that has them - both guest signups and assignment notes */
-                                                    if (!empty($signup->volunteer_notes)) : ?>
-                                                        <div class="signup-notes">
-                                                            <div class="signup-notes-display">
-                                                                <span class="notes-text"><?php echo esc_html($signup->volunteer_notes); ?></span>
-                                                                <button type="button" class="button-link edit-notes" title="<?php esc_attr_e('Edit notes', 'lcd-events'); ?>">
-                                                                    <span class="dashicons dashicons-edit"></span>
-                                                                </button>
-                                                            </div>
-                                                            <div class="signup-notes-edit" style="display: none;">
-                                                                <textarea class="notes-edit-field" rows="2"><?php echo esc_textarea($signup->volunteer_notes); ?></textarea>
-                                                                <div class="notes-edit-actions">
-                                                                    <button type="button" class="button button-small save-notes"><?php _e('Save', 'lcd-events'); ?></button>
-                                                                    <button type="button" class="button button-small cancel-notes"><?php _e('Cancel', 'lcd-events'); ?></button>
-                                                                </div>
-                                                            </div>
-                                                        </div>
-                                                    <?php else : ?>
-                                                        <div class="signup-notes">
-                                                            <div class="signup-notes-display">
-                                                                <span class="notes-text no-notes"><?php _e('No notes', 'lcd-events'); ?></span>
-                                                                <button type="button" class="button-link edit-notes" title="<?php esc_attr_e('Add notes', 'lcd-events'); ?>">
-                                                                    <span class="dashicons dashicons-edit"></span>
-                                                                </button>
-                                                            </div>
-                                                            <div class="signup-notes-edit" style="display: none;">
-                                                                <textarea class="notes-edit-field" rows="2" placeholder="<?php esc_attr_e('Add notes for this assignment...', 'lcd-events'); ?>"></textarea>
-                                                                <div class="notes-edit-actions">
-                                                                    <button type="button" class="button button-small save-notes"><?php _e('Save', 'lcd-events'); ?></button>
-                                                                    <button type="button" class="button button-small cancel-notes"><?php _e('Cancel', 'lcd-events'); ?></button>
-                                                                </div>
-                                                            </div>
-                                                        </div>
-                                                    <?php endif; ?>
-                                                    <div class="signup-status-section">
-                                                        <div class="signup-status-display">
-                                                            <span class="signup-status-label"><?php _e('Status:', 'lcd-events'); ?></span>
-                                                            <span class="signup-status-value <?php echo esc_attr($signup->status); ?>">
-                                                                <?php echo ucfirst($signup->status); ?>
-                                                            </span>
-                                                        </div>
-                                                        <div class="signup-actions">
-                                                            <button type="button" class="button button-small toggle-confirmed <?php echo esc_attr($signup->status); ?>" 
-                                                                    data-confirmed="<?php echo esc_attr($signup->status === 'confirmed' ? '1' : '0'); ?>"
-                                                                    title="<?php echo esc_attr($signup->status === 'confirmed' ? __('Mark as unconfirmed', 'lcd-events') : __('Mark as confirmed', 'lcd-events')); ?>">
-                                                                <?php echo $signup->status === 'confirmed' ? __('Unconfirm', 'lcd-events') : __('Confirm', 'lcd-events'); ?>
-                                                            </button>
-                                                            <button type="button" class="button-link button-link-delete unassign-volunteer" title="<?php esc_attr_e('Remove from shift', 'lcd-events'); ?>">
-                                                                <span class="dashicons dashicons-no-alt"></span>
-                                                            </button>
-                                                        </div>
-                                                    </div>
-                                                </div>
-                                            <?php endforeach; ?>
-                                        </div>
-                                    </div>
-                                <?php endif; ?>
-
-                                <div class="assign-volunteer-section">
-                                    <h6 class="assign-volunteer-title"><?php _e('Assign Person to Shift:', 'lcd-events'); ?></h6>
-                                    <div class="assign-volunteer-controls">
-                                        <select class="lcd-person-search-select" data-shift-index="<?php echo $index; ?>" style="width: 100%; margin-bottom: 5px;">
-                                            <option></option> <?php // Required for placeholder to work with allowClear ?>
-                                        </select>
-                                        <textarea class="shift-assignment-notes" 
-                                                  placeholder="<?php _e('Optional notes for this assignment (e.g., specific tasks, time constraints, etc.)', 'lcd-events'); ?>" 
-                                                  rows="2" 
-                                                  style="width: 100%; margin-top: 5px; resize: vertical;"></textarea>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
+                        <li>
+                            <strong><?php echo esc_html($shift['title'] ?: __('Untitled Shift', 'lcd-events')); ?></strong>
+                            <?php if (!empty($shift_info)) : ?>
+                                - <?php echo esc_html(implode(' at ', $shift_info)); ?>
+                            <?php endif; ?>
+                            <span class="volunteer-count"><?php echo esc_html($volunteer_count); ?></span>
+                        </li>
                     <?php endforeach; ?>
-                <?php endif; ?>
-            </div>
-            
-            <div class="add-shift-container">
-                <button type="button" class="button button-primary" id="add-volunteer-shift">
-                    <span class="dashicons dashicons-plus-alt"></span>
-                    <?php _e('Add Volunteer Shift', 'lcd-events'); ?>
-                </button>
-            </div>
-            
-            <div id="volunteer-shift-template" style="display: none;">
-                <div class="volunteer-shift-item" data-index="__INDEX__">
-                    <div class="shift-summary" data-shift="__INDEX__">
-                        <div class="shift-summary-content">
-                            <div class="shift-title-summary">
-                                <strong><?php _e('New Shift', 'lcd-events'); ?></strong>
-                            </div>
-                            <div class="shift-meta-summary">
-                                <span class="shift-placeholder"><?php _e('Click Details to configure', 'lcd-events'); ?></span>
-                            </div>
-                        </div>
-                        <div class="shift-summary-actions">
-                            <button type="button" class="button button-small toggle-shift-details" data-expanded="true">
-                                <span class="dashicons dashicons-arrow-up-alt2"></span>
-                                <?php _e('Details', 'lcd-events'); ?>
-                            </button>
-                            <button type="button" class="button button-small remove-shift">
-                                <span class="dashicons dashicons-trash"></span>
-                                <?php _e('Remove', 'lcd-events'); ?>
-                            </button>
-                        </div>
-                    </div>
-                    
-                    <div class="shift-details">
-                        <div class="shift-form-row">
-                            <div class="shift-form-col">
-                                <label for="volunteer_shifts___INDEX___title"><?php _e('Shift Title:', 'lcd-events'); ?></label>
-                                <input type="text" 
-                                       id="volunteer_shifts___INDEX___title" 
-                                       name="volunteer_shifts[__INDEX__][title]" 
-                                       value="" 
-                                       placeholder="<?php _e('e.g., Event Setup Crew', 'lcd-events'); ?>">
-                            </div>
-                            <div class="shift-form-col">
-                                <label for="volunteer_shifts___INDEX___max_volunteers"><?php _e('Max Volunteers:', 'lcd-events'); ?></label>
-                                <input type="number" 
-                                       id="volunteer_shifts___INDEX___max_volunteers" 
-                                       name="volunteer_shifts[__INDEX__][max_volunteers]" 
-                                       value="" 
-                                       placeholder="<?php _e('Unlimited', 'lcd-events'); ?>">
-                            </div>
-                        </div>
-                        
-                        <div class="shift-form-row">
-                            <div class="shift-form-col">
-                                <label for="volunteer_shifts___INDEX___description"><?php _e('Description:', 'lcd-events'); ?></label>
-                                <textarea id="volunteer_shifts___INDEX___description" 
-                                          name="volunteer_shifts[__INDEX__][description]" 
-                                          rows="2" 
-                                          placeholder="<?php _e('What will volunteers be doing?', 'lcd-events'); ?>"></textarea>
-                            </div>
-                        </div>
-                        
-                        <div class="shift-form-row shift-datetime-row">
-                            <div class="shift-form-col">
-                                <label for="volunteer_shifts___INDEX___date"><?php _e('Date:', 'lcd-events'); ?></label>
-                                <input type="date" 
-                                       id="volunteer_shifts___INDEX___date" 
-                                       name="volunteer_shifts[__INDEX__][date]" 
-                                       value="" 
-                                       class="shift-date">
-                            </div>
-                            <div class="shift-form-col">
-                                <label for="volunteer_shifts___INDEX___start_time"><?php _e('Start Time:', 'lcd-events'); ?></label>
-                                <input type="time" 
-                                       id="volunteer_shifts___INDEX___start_time" 
-                                       name="volunteer_shifts[__INDEX__][start_time]" 
-                                       value="" 
-                                       class="shift-time">
-                            </div>
-                            <div class="shift-form-col">
-                                <label for="volunteer_shifts___INDEX___end_time"><?php _e('End Time:', 'lcd-events'); ?></label>
-                                <input type="time" 
-                                       id="volunteer_shifts___INDEX___end_time" 
-                                       name="volunteer_shifts[__INDEX__][end_time]" 
-                                       value="" 
-                                       class="shift-time">
-                            </div>
-                        </div>
-
-                        <div class="assign-volunteer-section">
-                            <h6 class="assign-volunteer-title"><?php _e('Assign Person to Shift:', 'lcd-events'); ?></h6>
-                            <div class="assign-volunteer-controls">
-                                <select class="lcd-person-search-select" data-shift-index="__INDEX__" style="width: 100%; margin-bottom: 5px;">
-                                    <option></option> <?php // Required for placeholder to work with allowClear ?>
-                                </select>
-                                <textarea class="shift-assignment-notes" 
-                                          placeholder="<?php _e('Optional notes for this assignment (e.g., specific tasks, time constraints, etc.)', 'lcd-events'); ?>" 
-                                          rows="2" 
-                                          style="width: 100%; margin-top: 5px; resize: vertical;"></textarea>
-                            </div>
-                        </div>
-                    </div>
+                </ul>
+            <?php else : ?>
+                <div class="no-shifts-message">
+                    <p><?php _e('No volunteer shifts have been created for this event yet.', 'lcd-events'); ?></p>
+                    <p><?php _e('Use the "Manage Volunteer Shifts" button above to create and manage shifts.', 'lcd-events'); ?></p>
                 </div>
-            </div>
+            <?php endif; ?>
         </div>
         <?php
     }
@@ -514,6 +194,65 @@ class LCD_Volunteer_Shifts {
         ));
         
         return $signups;
+    }
+
+    /**
+     * Get volunteer signups for a specific user (across all events)
+     * Can look up by user_id or by email if user is not logged in
+     */
+    public function get_user_volunteer_signups($user_id = null, $email = null) {
+        global $wpdb;
+        
+        $table_name = $wpdb->prefix . 'lcd_volunteer_signups';
+        
+        if ($user_id) {
+            // Get signups by user_id
+            $signups = $wpdb->get_results($wpdb->prepare(
+                "SELECT * FROM $table_name WHERE user_id = %d ORDER BY signup_date DESC",
+                $user_id
+            ));
+        } elseif ($email) {
+            // Get signups by email
+            $signups = $wpdb->get_results($wpdb->prepare(
+                "SELECT * FROM $table_name WHERE volunteer_email = %s ORDER BY signup_date DESC",
+                $email
+            ));
+        } else {
+            return array();
+        }
+        
+        return $signups;
+    }
+
+    /**
+     * Check if a user is signed up for a specific shift
+     */
+    public function is_user_signed_up_for_shift($event_id, $shift_index, $user_id = null, $email = null) {
+        global $wpdb;
+        
+        $table_name = $wpdb->prefix . 'lcd_volunteer_signups';
+        
+        if ($user_id) {
+            // Check by user_id
+            $signup = $wpdb->get_row($wpdb->prepare(
+                "SELECT id FROM $table_name WHERE event_id = %d AND shift_index = %d AND user_id = %d AND status = 'confirmed'",
+                $event_id,
+                $shift_index,
+                $user_id
+            ));
+        } elseif ($email) {
+            // Check by email
+            $signup = $wpdb->get_row($wpdb->prepare(
+                "SELECT id FROM $table_name WHERE event_id = %d AND shift_index = %d AND volunteer_email = %s AND status = 'confirmed'",
+                $event_id,
+                $shift_index,
+                $email
+            ));
+        } else {
+            return false;
+        }
+        
+        return !empty($signup);
     }
 
     /**
@@ -691,6 +430,8 @@ class LCD_Volunteer_Shifts {
         $shift_title = isset($_POST['shift_title']) ? sanitize_text_field($_POST['shift_title']) : __('Untitled Shift', 'lcd-events');
         $person_id = isset($_POST['person_id']) ? intval($_POST['person_id']) : 0;
         $assignment_notes = isset($_POST['assignment_notes']) ? sanitize_textarea_field($_POST['assignment_notes']) : '';
+        $send_email = isset($_POST['send_email']) ? ($_POST['send_email'] === 'true' || $_POST['send_email'] === true) : true; // Default to true for backward compatibility
+        $additional_message = isset($_POST['additional_message']) ? sanitize_textarea_field($_POST['additional_message']) : '';
 
         if (!$event_id || $shift_index < 0 || !$person_id) {
             wp_send_json_error(['message' => __('Missing required data.', 'lcd-events')], 400);
@@ -753,73 +494,62 @@ class LCD_Volunteer_Shifts {
         if ($inserted) {
             $signup_id = $wpdb->insert_id;
             
-            // Send confirmation email
-            $volunteer_shifts = get_post_meta($event_id, '_volunteer_shifts', true);
-            $shift_details = $volunteer_shifts[$shift_index] ?? [];
-            
-            $volunteer_email_data = [
-                'name' => $volunteer_name,
-                'email' => $volunteer_email,
-                'phone' => $volunteer_phone
-            ];
-            
-            $this->send_volunteer_confirmation_email($event_id, $shift_details, $volunteer_email_data);
+            // Send confirmation email only if requested
+            if ($send_email) {
+                $volunteer_shifts = get_post_meta($event_id, '_volunteer_shifts', true);
+                $shift_details = $volunteer_shifts[$shift_index] ?? [];
+                
+                $volunteer_email_data = [
+                    'name' => $volunteer_name,
+                    'email' => $volunteer_email,
+                    'phone' => $volunteer_phone
+                ];
+                
+                $this->send_volunteer_confirmation_email($event_id, $shift_details, $volunteer_email_data, $additional_message);
+            }
             // Prepare HTML for the new signup item to send back to JS
             ob_start();
             ?>
-            <div class="signup-item-compact status-confirmed" data-person-id="<?php echo esc_attr($person_id); ?>" data-signup-id="<?php echo esc_attr($signup_id); ?>">
-                <div class="signup-header">
-                    <div class="signup-primary">
-                        <strong><?php echo esc_html($volunteer_name); ?></strong>
-                        <span class="signup-contact">
-                            <?php echo esc_html($volunteer_email); ?>
-                            <?php if (!empty($volunteer_phone)) : ?>
-                                • <?php echo esc_html($volunteer_phone); ?>
-                            <?php endif; ?>
-                        </span>
+            <tr class="signup-row status-confirmed" data-person-id="<?php echo esc_attr($person_id); ?>" data-signup-id="<?php echo esc_attr($signup_id); ?>">
+                <td class="signup-name-cell">
+                    <div class="signup-name"><?php echo esc_html($volunteer_name); ?></div>
+                </td>
+                <td class="signup-contact-cell">
+                    <div class="signup-contact">
+                        <div class="email"><?php echo esc_html($volunteer_email); ?></div>
+                        <?php if (!empty($volunteer_phone)) : ?>
+                            <div class="phone"><?php echo esc_html($volunteer_phone); ?></div>
+                        <?php endif; ?>
                     </div>
-                    <div class="signup-date"><?php echo date_i18n('M j, Y \a\t g:i A', strtotime(current_time('mysql'))); ?></div>
-                </div>
-                <?php if (!empty($assignment_notes)) : ?>
+                </td>
+                <td class="signup-notes-cell">
                     <div class="signup-notes">
                         <div class="signup-notes-display">
-                            <span class="notes-text"><?php echo esc_html($assignment_notes); ?></span>
-                            <button type="button" class="button-link edit-notes" title="<?php esc_attr_e('Edit notes', 'lcd-events'); ?>">
+                            <span class="signup-notes-text <?php echo empty($assignment_notes) ? 'no-notes' : ''; ?>">
+                                <?php echo !empty($assignment_notes) ? esc_html($assignment_notes) : __('No notes', 'lcd-events'); ?>
+                            </span>
+                            <a class="signup-notes-edit-btn edit-notes" title="<?php esc_attr_e('Edit notes', 'lcd-events'); ?>">
                                 <span class="dashicons dashicons-edit"></span>
-                            </button>
+                            </a>
                         </div>
                         <div class="signup-notes-edit" style="display: none;">
-                            <textarea class="notes-edit-field" rows="2"><?php echo esc_textarea($assignment_notes); ?></textarea>
+                            <textarea class="notes-edit-field" rows="2" placeholder="<?php esc_attr_e('Add notes for this assignment...', 'lcd-events'); ?>"><?php echo esc_textarea($assignment_notes ?? ''); ?></textarea>
                             <div class="notes-edit-actions">
                                 <button type="button" class="button button-small save-notes"><?php _e('Save', 'lcd-events'); ?></button>
                                 <button type="button" class="button button-small cancel-notes"><?php _e('Cancel', 'lcd-events'); ?></button>
                             </div>
                         </div>
                     </div>
-                <?php else : ?>
-                    <div class="signup-notes">
-                        <div class="signup-notes-display">
-                            <span class="notes-text no-notes"><?php _e('No notes', 'lcd-events'); ?></span>
-                            <button type="button" class="button-link edit-notes" title="<?php esc_attr_e('Add notes', 'lcd-events'); ?>">
-                                <span class="dashicons dashicons-edit"></span>
-                            </button>
-                        </div>
-                        <div class="signup-notes-edit" style="display: none;">
-                            <textarea class="notes-edit-field" rows="2" placeholder="<?php esc_attr_e('Add notes for this assignment...', 'lcd-events'); ?>"></textarea>
-                            <div class="notes-edit-actions">
-                                <button type="button" class="button button-small save-notes"><?php _e('Save', 'lcd-events'); ?></button>
-                                <button type="button" class="button button-small cancel-notes"><?php _e('Cancel', 'lcd-events'); ?></button>
-                            </div>
-                        </div>
-                    </div>
-                <?php endif; ?>
-                <div class="signup-status-section">
-                    <div class="signup-status-display">
-                        <span class="signup-status-label"><?php _e('Status:', 'lcd-events'); ?></span>
-                        <span class="signup-status-value confirmed">
-                            <?php _e('Confirmed', 'lcd-events'); ?>
-                        </span>
-                    </div>
+                </td>
+                <td class="signup-status-cell">
+                    <span class="signup-status confirmed"><?php _e('Confirmed', 'lcd-events'); ?></span>
+                </td>
+                <td class="signup-date-cell">
+                    <?php echo date_i18n('M j, Y', strtotime(current_time('mysql'))); ?>
+                    <br>
+                    <small><?php echo date_i18n('g:i A', strtotime(current_time('mysql'))); ?></small>
+                </td>
+                <td class="signup-actions-cell">
                     <div class="signup-actions">
                         <button type="button" class="button button-small toggle-confirmed confirmed" 
                                 data-confirmed="1"
@@ -830,8 +560,8 @@ class LCD_Volunteer_Shifts {
                             <span class="dashicons dashicons-no-alt"></span>
                         </button>
                     </div>
-                </div>
-            </div>
+                </td>
+            </tr>
             <?php
             $new_signup_html = ob_get_clean();
             wp_send_json_success(['message' => __('Volunteer assigned.', 'lcd-events'), 'new_signup_html' => $new_signup_html, 'signup_id' => $signup_id]);
@@ -852,6 +582,8 @@ class LCD_Volunteer_Shifts {
         }
 
         $signup_id = isset($_POST['signup_id']) ? intval($_POST['signup_id']) : 0;
+        $send_email = isset($_POST['send_email']) ? ($_POST['send_email'] === 'true' || $_POST['send_email'] === true) : true; // Default to true for backward compatibility
+        $additional_message = isset($_POST['additional_message']) ? sanitize_textarea_field($_POST['additional_message']) : '';
 
         if (!$signup_id) {
             wp_send_json_error(['message' => __('Missing signup ID.', 'lcd-events')], 400);
@@ -870,8 +602,8 @@ class LCD_Volunteer_Shifts {
         $deleted = $wpdb->delete($table_name, ['id' => $signup_id], ['%d']);
 
         if ($deleted !== false) {
-            // Send cancellation email if signup was found
-            if ($signup) {
+            // Send cancellation email if signup was found and email is requested
+            if ($signup && $send_email) {
                 $volunteer_shifts = get_post_meta($signup->event_id, '_volunteer_shifts', true);
                 $shift_details = $volunteer_shifts[$signup->shift_index] ?? [];
                 
@@ -881,7 +613,7 @@ class LCD_Volunteer_Shifts {
                     'phone' => $signup->volunteer_phone
                 ];
                 
-                $this->send_volunteer_cancellation_email($signup->event_id, $shift_details, $volunteer_email_data);
+                $this->send_volunteer_cancellation_email($signup->event_id, $shift_details, $volunteer_email_data, $additional_message);
             }
             
             wp_send_json_success(['message' => __('Volunteer unassigned.', 'lcd-events')]);
@@ -954,6 +686,8 @@ class LCD_Volunteer_Shifts {
         
         $signup_id = intval($_POST['signup_id']);
         $confirmed = $_POST['confirmed'] === '1' ? 1 : 0;
+        $send_email = isset($_POST['send_email']) ? ($_POST['send_email'] === 'true' || $_POST['send_email'] === true) : false; // Default to false for confirmation toggle
+        $additional_message = isset($_POST['additional_message']) ? sanitize_textarea_field($_POST['additional_message']) : '';
         
         if ($signup_id <= 0) {
             wp_send_json_error('Invalid signup ID');
@@ -988,6 +722,20 @@ class LCD_Volunteer_Shifts {
         if ($updated === false) {
             wp_send_json_error('Failed to update confirmation status');
             return;
+        }
+        
+        // Send email if requested (only when confirming)
+        if ($send_email && $confirmed) {
+            $volunteer_shifts = get_post_meta($signup->event_id, '_volunteer_shifts', true);
+            $shift_details = $volunteer_shifts[$signup->shift_index] ?? [];
+            
+            $volunteer_email_data = [
+                'name' => $signup->volunteer_name,
+                'email' => $signup->volunteer_email,
+                'phone' => $signup->volunteer_phone
+            ];
+            
+            $this->send_volunteer_confirmation_email($signup->event_id, $shift_details, $volunteer_email_data, $additional_message);
         }
         
         wp_send_json_success(array(
@@ -1395,1494 +1143,13 @@ class LCD_Volunteer_Shifts {
         exit;
     }
 
-    /**
-     * Add Volunteer Shifts Admin Page
-     */
-    public function add_volunteer_shifts_page() {
-        add_submenu_page(
-            'edit.php?post_type=event',           // Parent slug (Events menu)
-            __('Volunteer Shifts', 'lcd-events'), // Page title
-            __('Volunteer Shifts', 'lcd-events'), // Menu title
-            'edit_posts',                         // Capability required
-            'volunteer-shifts',                   // Menu slug
-            [$this, 'volunteer_shifts_page_callback']  // Callback function
-        );
-    }
 
-    /**
-     * Volunteer Shifts Admin Page Callback
-     */
-    public function volunteer_shifts_page_callback() {
-        // Get all upcoming events with volunteer shifts
-        $events = get_posts(array(
-            'post_type' => 'event',
-            'posts_per_page' => -1,
-            'meta_query' => array(
-                array(
-                    'key' => '_event_date',
-                    'value' => date('Y-m-d'),
-                    'compare' => '>=',
-                    'type' => 'DATE'
-                )
-            ),
-            'orderby' => 'meta_value',
-            'meta_key' => '_event_date',
-            'order' => 'ASC'
-        ));
 
-        ?>
-        <div class="wrap">
-            <h1><?php _e('Volunteer Shifts', 'lcd-events'); ?></h1>
-            
-            <?php if (empty($events)) : ?>
-                <div class="notice notice-info">
-                    <p><?php _e('No upcoming events with volunteer shifts found.', 'lcd-events'); ?></p>
-                </div>
-            <?php else : ?>
-                <div class="lcd-volunteer-shifts-overview">
-                    <?php foreach ($events as $event) : 
-                        $shifts = $this->get_event_volunteer_shifts($event->ID);
-                        if (empty($shifts)) continue;
-                        
-                        $event_date = get_post_meta($event->ID, '_event_date', true);
-                        $formatted_date = date_i18n(get_option('date_format'), strtotime($event_date));
-                        
-                        // Get all signups for this event
-                        $all_signups = $this->get_volunteer_signups($event->ID);
-                        $signups_by_shift = array();
-                        foreach ($all_signups as $signup) {
-                            $signups_by_shift[$signup->shift_index][] = $signup;
-                        }
-                        ?>
-                        
-                        <div class="lcd-event-shifts-section">
-                            <h2>
-                                <a href="<?php echo get_edit_post_link($event->ID); ?>">
-                                    <?php echo esc_html($event->post_title); ?>
-                                </a>
-                                <span class="event-date"><?php echo esc_html($formatted_date); ?></span>
-                            </h2>
-                            
-                            <?php 
-                            $total_event_signups = count($all_signups);
-                            if ($total_event_signups > 0) : ?>
-                                <div class="event-export-header">
-                                    <div class="event-export-info">
-                                        <span><?php printf(__('Total volunteers: %d', 'lcd-events'), $total_event_signups); ?></span>
-                                    </div>
-                                    <div class="event-export-buttons">
-                                        <button type="button" class="button button-secondary export-volunteers-csv" data-event-id="<?php echo $event->ID; ?>">
-                                            <span class="dashicons dashicons-media-spreadsheet"></span>
-                                            <?php _e('Export CSV', 'lcd-events'); ?>
-                                        </button>
-                                        <button type="button" class="button button-secondary export-volunteers-pdf" data-event-id="<?php echo $event->ID; ?>">
-                                            <span class="dashicons dashicons-pdf"></span>
-                                            <?php _e('Export PDF', 'lcd-events'); ?>
-                                        </button>
-                                    </div>
-                                </div>
-                            <?php endif; ?>
-                            
-                            <div id="volunteer-shifts-container-<?php echo $event->ID; ?>" class="volunteer-shifts-container">
-                                <?php foreach ($shifts as $index => $shift) : 
-                                    $shift_signups = $signups_by_shift[$index] ?? array();
-                                    $signup_count = count($shift_signups);
-                                    $max_volunteers = !empty($shift['max_volunteers']) ? $shift['max_volunteers'] : '∞';
-                                    
-                                    $time_string = '';
-                                    if (!empty($shift['start_time'])) {
-                                        $time_string = date_i18n(get_option('time_format'), strtotime($shift['start_time']));
-                                        if (!empty($shift['end_time'])) {
-                                            $time_string .= ' - ' . date_i18n(get_option('time_format'), strtotime($shift['end_time']));
-                                        }
-                                    }
-                                    ?>
-                                    
-                                    <div class="volunteer-shift-item" data-index="<?php echo $index; ?>" data-event-id="<?php echo $event->ID; ?>">
-                                        <div class="shift-summary" data-shift="<?php echo $index; ?>">
-                                            <div class="shift-summary-content">
-                                                <div class="shift-title-summary">
-                                                    <strong><?php echo esc_html($shift['title']); ?></strong>
-                                                </div>
-                                                <div class="shift-meta-summary">
-                                                    <?php if (!empty($shift['date'])) : ?>
-                                                        <span class="shift-date-summary">
-                                                            <?php echo date_i18n(get_option('date_format'), strtotime($shift['date'])); ?>
-                                                        </span>
-                                                    <?php endif; ?>
-                                                    
-                                                    <?php if ($time_string) : ?>
-                                                        <span class="shift-time-summary"><?php echo esc_html($time_string); ?></span>
-                                                    <?php endif; ?>
-                                                    
-                                                    <span class="shift-signups-summary">
-                                                        <?php 
-                                                        if ($max_volunteers !== '∞') {
-                                                            printf(__('%d / %s volunteers', 'lcd-events'), $signup_count, $max_volunteers);
-                                                        } else {
-                                                            printf(__('%d volunteers', 'lcd-events'), $signup_count);
-                                                        }
-                                                        ?>
-                                                    </span>
-                                                </div>
-                                            </div>
-                                            <div class="shift-summary-actions">
-                                                <button type="button" class="button button-small toggle-shift-details" data-expanded="false">
-                                                    <span class="dashicons dashicons-arrow-down-alt2"></span>
-                                                    <?php _e('Details', 'lcd-events'); ?>
-                                                </button>
-                                            </div>
-                                        </div>
-                                        
-                                        <div class="shift-details" style="display: none;">
-                                            <?php 
-                                            // Display shift date and time prominently in details
-                                            if (!empty($shift['date']) || $time_string) : ?>
-                                                <div class="shift-datetime-info">
-                                                    <?php if (!empty($shift['date'])) : ?>
-                                                        <div class="shift-date-info">
-                                                            <strong><?php _e('Date:', 'lcd-events'); ?></strong>
-                                                            <span><?php echo date_i18n(get_option('date_format'), strtotime($shift['date'])); ?></span>
-                                                        </div>
-                                                    <?php endif; ?>
-                                                    
-                                                    <?php if ($time_string) : ?>
-                                                        <div class="shift-time-info">
-                                                            <strong><?php _e('Time:', 'lcd-events'); ?></strong>
-                                                            <span><?php echo esc_html($time_string); ?></span>
-                                                        </div>
-                                                    <?php endif; ?>
-                                                </div>
-                                            <?php endif; ?>
-                                            
-                                            <?php if (!empty($shift['description'])) : ?>
-                                                <div class="shift-description">
-                                                    <strong><?php _e('Description:', 'lcd-events'); ?></strong>
-                                                    <p><?php echo esc_html($shift['description']); ?></p>
-                                                </div>
-                                            <?php endif; ?>
-                                            
-                                            <?php if (!empty($shift_signups)) : ?>
-                                                <div class="shift-signups">
-                                                    <h5>
-                                                        <span class="dashicons dashicons-groups"></span>
-                                                        <?php _e('Registered Volunteers:', 'lcd-events'); ?>
-                                                        <span class="signups-count">(<?php echo count($shift_signups); ?>)</span>
-                                                    </h5>
-                                                    <div class="signups-list">
-                                                        <?php foreach ($shift_signups as $signup) : 
-                                                            $person_name = esc_html($signup->volunteer_name);
-                                                            $person_email = esc_html($signup->volunteer_email);
-                                                            $person_phone = esc_html($signup->volunteer_phone ?? '');
-                                                            $person_notes = esc_html($signup->volunteer_notes ?? '');
-                                                            $person_id_attr = isset($signup->person_id) && $signup->person_id ? 'data-person-id="' . esc_attr($signup->person_id) . '"' : '';
-                                                            $signup_id_attr = 'data-signup-id="' . esc_attr($signup->id) . '"';
-                                                            
-                                                            // If linked to an lcd_person, fetch their latest details
-                                                            if (isset($signup->person_id) && $signup->person_id) {
-                                                                $person_post = get_post($signup->person_id);
-                                                                if ($person_post) {
-                                                                    $person_name = esc_html($person_post->post_title);
-                                                                    $person_email = esc_html(get_post_meta($signup->person_id, '_lcd_person_email', true));
-                                                                    $person_phone = esc_html(get_post_meta($signup->person_id, '_lcd_person_phone', true));
-                                                                }
-                                                            }
-                                                            ?>
-                                                            <div class="signup-item-compact status-<?php echo esc_attr($signup->status); ?>" <?php echo $person_id_attr; ?> <?php echo $signup_id_attr; ?>>
-                                                                <div class="signup-header">
-                                                                    <div class="signup-primary">
-                                                                        <strong><?php echo $person_name; ?></strong>
-                                                                        <span class="signup-contact">
-                                                                            <?php echo $person_email; ?>
-                                                                            <?php if (!empty($person_phone)) : ?>
-                                                                                • <?php echo $person_phone; ?>
-                                                                            <?php endif; ?>
-                                                                        </span>
-                                                                    </div>
-                                                                    <div class="signup-date"><?php echo date_i18n('M j, Y \a\t g:i A', strtotime($signup->signup_date)); ?></div>
-                                                                </div>
-                                                                <?php if (!empty($signup->volunteer_notes)) : ?>
-                                                                    <div class="signup-notes">
-                                                                        <div class="signup-notes-display">
-                                                                            <span class="notes-text"><?php echo esc_html($signup->volunteer_notes); ?></span>
-                                                                            <button type="button" class="button-link edit-notes" title="<?php esc_attr_e('Edit notes', 'lcd-events'); ?>">
-                                                                                <span class="dashicons dashicons-edit"></span>
-                                                                            </button>
-                                                                        </div>
-                                                                        <div class="signup-notes-edit" style="display: none;">
-                                                                            <textarea class="notes-edit-field" rows="2"><?php echo esc_textarea($signup->volunteer_notes); ?></textarea>
-                                                                            <div class="notes-edit-actions">
-                                                                                <button type="button" class="button button-small save-notes"><?php _e('Save', 'lcd-events'); ?></button>
-                                                                                <button type="button" class="button button-small cancel-notes"><?php _e('Cancel', 'lcd-events'); ?></button>
-                                                                            </div>
-                                                                        </div>
-                                                                    </div>
-                                                                <?php else : ?>
-                                                                    <div class="signup-notes">
-                                                                        <div class="signup-notes-display">
-                                                                            <span class="notes-text no-notes"><?php _e('No notes', 'lcd-events'); ?></span>
-                                                                            <button type="button" class="button-link edit-notes" title="<?php esc_attr_e('Add notes', 'lcd-events'); ?>">
-                                                                                <span class="dashicons dashicons-edit"></span>
-                                                                            </button>
-                                                                        </div>
-                                                                        <div class="signup-notes-edit" style="display: none;">
-                                                                            <textarea class="notes-edit-field" rows="2" placeholder="<?php esc_attr_e('Add notes for this assignment...', 'lcd-events'); ?>"></textarea>
-                                                                            <div class="notes-edit-actions">
-                                                                                <button type="button" class="button button-small save-notes"><?php _e('Save', 'lcd-events'); ?></button>
-                                                                                <button type="button" class="button button-small cancel-notes"><?php _e('Cancel', 'lcd-events'); ?></button>
-                                                                            </div>
-                                                                        </div>
-                                                                    </div>
-                                                                <?php endif; ?>
-                                                                <div class="signup-status-section">
-                                                                    <div class="signup-status-display">
-                                                                        <span class="signup-status-label"><?php _e('Status:', 'lcd-events'); ?></span>
-                                                                        <span class="signup-status-value <?php echo esc_attr($signup->status); ?>">
-                                                                            <?php echo ucfirst($signup->status); ?>
-                                                                        </span>
-                                                                    </div>
-                                                                    <div class="signup-actions">
-                                                                        <button type="button" class="button button-small toggle-confirmed <?php echo esc_attr($signup->status); ?>" 
-                                                                                data-confirmed="<?php echo esc_attr($signup->status === 'confirmed' ? '1' : '0'); ?>"
-                                                                                title="<?php echo esc_attr($signup->status === 'confirmed' ? __('Mark as unconfirmed', 'lcd-events') : __('Mark as confirmed', 'lcd-events')); ?>">
-                                                                            <?php echo $signup->status === 'confirmed' ? __('Unconfirm', 'lcd-events') : __('Confirm', 'lcd-events'); ?>
-                                                                        </button>
-                                                                        <button type="button" class="button-link button-link-delete unassign-volunteer" title="<?php esc_attr_e('Remove from shift', 'lcd-events'); ?>">
-                                                                            <span class="dashicons dashicons-no-alt"></span>
-                                                                        </button>
-                                                                    </div>
-                                                                </div>
-                                                            </div>
-                                                        <?php endforeach; ?>
-                                                    </div>
-                                                </div>
-                                            <?php endif; ?>
-
-                                            <div class="assign-volunteer-section">
-                                                <h6 class="assign-volunteer-title"><?php _e('Assign Person to Shift:', 'lcd-events'); ?></h6>
-                                                <div class="assign-volunteer-controls">
-                                                    <select class="lcd-person-search-select" data-shift-index="<?php echo $index; ?>" data-event-id="<?php echo $event->ID; ?>" style="width: 100%; margin-bottom: 5px;">
-                                                        <option></option>
-                                                    </select>
-                                                    <textarea class="shift-assignment-notes" 
-                                                              placeholder="<?php _e('Optional notes for this assignment (e.g., specific tasks, time constraints, etc.)', 'lcd-events'); ?>" 
-                                                              rows="2" 
-                                                              style="width: 100%; margin-top: 5px; resize: vertical;"></textarea>
-                                                </div>
-                                            </div>
-                                        </div>
-                                    </div>
-                                <?php endforeach; ?>
-                            </div>
-                        </div>
-                    <?php endforeach; ?>
-                </div>
-            <?php endif; ?>
-        </div>
-        <?php
-    }
-
-    // Add styles for the volunteer shifts overview page
-    public function volunteer_shifts_admin_styles() {
-        $screen = get_current_screen();
-        
-        // Load styles for volunteer shifts overview page
-        if ($screen->id === 'event_page_volunteer-shifts') {
-            // Enqueue the volunteer shifts admin stylesheet
-            wp_enqueue_style(
-                'lcd-volunteer-shifts-admin-styles',
-                LCD_EVENTS_PLUGIN_URL . 'css/admin-volunteer-shifts.css',
-                array(),
-                LCD_EVENTS_VERSION
-            );
-        }
-        
-        // Load styles for email templates page
-        if ($screen->id === 'event_page_volunteer-email-templates') {
-            // Enqueue the email templates admin stylesheet
-            wp_enqueue_style(
-                'lcd-email-templates-admin-styles',
-                LCD_EVENTS_PLUGIN_URL . 'css/email-templates-admin.css',
-                array(),
-                LCD_EVENTS_VERSION
-            );
-        }
-        
-        // Return early if not on relevant pages
-        if (!in_array($screen->id, ['event_page_volunteer-shifts', 'event_page_volunteer-email-templates'])) {
-            return;
-        }
-
-        // Enqueue the main admin CSS file as well
-        wp_enqueue_style(
-            'lcd-events-admin-styles',
-            LCD_EVENTS_PLUGIN_URL . 'css/lcd-events.css',
-            array(), 
-            LCD_EVENTS_VERSION
-        );
-        
-        // Enqueue Select2
-        if (!wp_style_is('select2', 'enqueued')) {
-            wp_enqueue_style(
-                'select2',
-                'https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/css/select2.min.css',
-                array(),
-                '4.1.0-rc.0'
-            );
-        }
-        if (!wp_script_is('select2', 'enqueued')) {
-            wp_enqueue_script(
-                'select2',
-                'https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js',
-                array('jquery'),
-                '4.1.0-rc.0',
-                true
-            );
-        }
-
-        // Enqueue our admin events JavaScript
-        wp_enqueue_script(
-            'lcd-events-admin',
-            LCD_EVENTS_PLUGIN_URL . 'js/admin-events.js',
-            array('jquery', 'select2'),
-            LCD_EVENTS_VERSION,
-            true
-        );
-
-        // Localize script for the volunteer shifts overview page (different from event edit page)
-        wp_localize_script('lcd-events-admin', 'lcdEventsAdmin', [
-            'ajaxurl' => admin_url('admin-ajax.php'),
-            'search_people_nonce' => wp_create_nonce('lcd_event_shifts_people_search'),
-            'assign_person_nonce' => wp_create_nonce('lcd_event_assign_person_to_shift'),
-            'unassign_person_nonce' => wp_create_nonce('lcd_event_unassign_person_from_shift'),
-            'edit_notes_nonce' => wp_create_nonce('lcd_event_edit_volunteer_notes'),
-            'toggle_confirmed_nonce' => wp_create_nonce('lcd_event_toggle_volunteer_confirmed'),
-            'export_csv_nonce' => wp_create_nonce('lcd_export_volunteers_csv'),
-            'export_pdf_nonce' => wp_create_nonce('lcd_export_volunteers_pdf'),
-            'text' => [
-                'confirm_unassign' => __('Are you sure you want to remove this volunteer from this shift?', 'lcd-events'),
-                'error_assigning' => __('Could not assign volunteer. Please try again.', 'lcd-events'),
-                'error_unassigning' => __('Could not remove volunteer. Please try again.', 'lcd-events'),
-                'error_editing_notes' => __('Could not save notes. Please try again.', 'lcd-events'),
-                'searching' => __('Searching...', 'lcd-events'),
-                'no_results' => __('No people found matching your search.', 'lcd-events'),
-                'error_loading' => __('Could not load search results.', 'lcd-events'),
-                'edit_notes' => __('Edit notes', 'lcd-events'),
-                'add_notes' => __('Add notes', 'lcd-events'),
-                'no_notes' => __('No notes', 'lcd-events'),
-                'search_placeholder' => __('Search by name or email...', 'lcd-events'),
-                'input_too_short' => __('Please enter 2 or more characters', 'lcd-events'),
-                'export_error' => __('Error exporting volunteer list. Please try again.', 'lcd-events'),
-                'registered_volunteers' => __('Registered Volunteers:', 'lcd-events'),
-            ]
-        ]);
-    }
-
-    /**
-     * Add Email Settings Admin Page
-     */
-    public function add_email_settings_page() {
-        add_submenu_page(
-            'edit.php?post_type=event',           // Parent slug (Events menu)
-            __('Email Templates', 'lcd-events'),  // Page title
-            __('Email Templates', 'lcd-events'),  // Menu title
-            'manage_options',                     // Capability required
-            'volunteer-email-templates',          // Menu slug
-            [$this, 'email_settings_page_callback']  // Callback function
-        );
-    }
-
-    /**
-     * Register email settings
-     */
-    public function register_email_settings() {
-        // Register settings group
-        register_setting('lcd_volunteer_email_settings', 'lcd_volunteer_email_settings', [
-            'sanitize_callback' => [$this, 'sanitize_email_settings']
-        ]);
-
-        // Add settings sections
-        add_settings_section(
-            'zeptomail_api',
-            __('ZeptoMail API Settings', 'lcd-events'),
-            [$this, 'zeptomail_api_section_callback'],
-            'lcd_volunteer_email_settings'
-        );
-
-        add_settings_section(
-            'email_general',
-            __('General Email Settings', 'lcd-events'),
-            [$this, 'email_general_section_callback'],
-            'lcd_volunteer_email_settings'
-        );
-
-        add_settings_section(
-            'template_mapping',
-            __('ZeptoMail Template Mapping', 'lcd-events'),
-            [$this, 'template_mapping_section_callback'],
-            'lcd_volunteer_email_settings'
-        );
-
-        // ZeptoMail API settings
-        add_settings_field(
-            'zeptomail_api_token',
-            __('ZeptoMail API Token', 'lcd-events'),
-            [$this, 'zeptomail_api_token_field_callback'],
-            'lcd_volunteer_email_settings',
-            'zeptomail_api'
-        );
-
-        add_settings_field(
-            'zeptomail_mailagent_alias',
-            __('Mail Agent Alias', 'lcd-events'),
-            [$this, 'zeptomail_mailagent_alias_field_callback'],
-            'lcd_volunteer_email_settings',
-            'zeptomail_api'
-        );
-
-        add_settings_field(
-            'enable_zeptomail',
-            __('Enable ZeptoMail', 'lcd-events'),
-            [$this, 'enable_zeptomail_field_callback'],
-            'lcd_volunteer_email_settings',
-            'zeptomail_api'
-        );
-
-        // General settings fields
-        add_settings_field(
-            'from_name',
-            __('From Name', 'lcd-events'),
-            [$this, 'from_name_field_callback'],
-            'lcd_volunteer_email_settings',
-            'email_general'
-        );
-
-        add_settings_field(
-            'from_email',
-            __('From Email', 'lcd-events'),
-            [$this, 'from_email_field_callback'],
-            'lcd_volunteer_email_settings',
-            'email_general'
-        );
-
-        add_settings_field(
-            'reply_to',
-            __('Reply To Email', 'lcd-events'),
-            [$this, 'reply_to_field_callback'],
-            'lcd_volunteer_email_settings',
-            'email_general'
-        );
-
-        // Template mapping fields
-        $email_types = $this->get_email_types();
-        foreach ($email_types as $type => $label) {
-            add_settings_field(
-                $type . '_template',
-                sprintf(__('%s Template', 'lcd-events'), $label),
-                [$this, 'template_mapping_field_callback'],
-                'lcd_volunteer_email_settings',
-                'template_mapping',
-                ['type' => $type, 'label' => $label]
-            );
-        }
-    }
-
-    /**
-     * Get available email types
-     */
-    public function get_email_types() {
-        return [
-            'volunteer_confirmation' => __('Volunteer Assignment Confirmation', 'lcd-events'),
-            'volunteer_cancellation' => __('Volunteer Assignment Cancellation', 'lcd-events'),
-            'volunteer_reminder' => __('Volunteer Shift Reminder', 'lcd-events'),
-            'event_update' => __('Event Update Notification', 'lcd-events'),
-            'shift_change' => __('Shift Details Change', 'lcd-events'),
-        ];
-    }
-
-    /**
-     * Get default email templates
-     */
-    public function get_default_email_templates() {
-        return [
-            'volunteer_confirmation' => [
-                'subject' => __('Thank you for volunteering - {event_title}', 'lcd-events'),
-                'content' => __('Hi {volunteer_name},
-
-Thank you for signing up to volunteer for {event_title}!
-
-Event Details:
-- Event: {event_title}
-- Date: {event_date}
-- Time: {event_time}
-- Location: {event_location}
-
-Your Volunteer Shift:
-- Shift: {shift_title}
-- Date: {shift_date}
-- Time: {shift_start_time} - {shift_end_time}
-- Description: {shift_description}
-
-If you have any questions or need to make changes to your volunteer assignment, please contact us.
-
-Thank you for your support!
-
-Best regards,
-Lewis County Democrats', 'lcd-events')
-            ],
-            'volunteer_cancellation' => [
-                'subject' => __('Volunteer assignment cancelled - {event_title}', 'lcd-events'),
-                'content' => __('Hi {volunteer_name},
-
-This email confirms that your volunteer assignment has been cancelled for {event_title}.
-
-Cancelled Assignment:
-- Event: {event_title}
-- Shift: {shift_title}
-- Date: {shift_date}
-
-We understand that circumstances change. If you\'d like to volunteer for a different shift or event, please let us know.
-
-Thank you for your willingness to help!
-
-Best regards,
-Lewis County Democrats', 'lcd-events')
-            ],
-            'volunteer_reminder' => [
-                'subject' => __('Reminder: Volunteer shift tomorrow - {event_title}', 'lcd-events'),
-                'content' => __('Hi {volunteer_name},
-
-This is a friendly reminder about your volunteer shift tomorrow!
-
-Event Details:
-- Event: {event_title}
-- Date: {event_date}
-- Time: {event_time}
-- Location: {event_location}
-- Address: {event_address}
-
-Your Volunteer Shift:
-- Shift: {shift_title}
-- Date: {shift_date}
-- Time: {shift_start_time} - {shift_end_time}
-- Description: {shift_description}
-
-What to bring:
-- Your enthusiasm!
-- Comfortable shoes
-- Water bottle
-
-If you need directions or have any last-minute questions, please don\'t hesitate to reach out.
-
-See you tomorrow!
-
-Best regards,
-Lewis County Democrats', 'lcd-events')
-            ],
-            'event_update' => [
-                'subject' => __('Important update about {event_title}', 'lcd-events'),
-                'content' => __('Hi {volunteer_name},
-
-We have an important update regarding {event_title} for which you are volunteering.
-
-{update_message}
-
-Event Details:
-- Event: {event_title}
-- Date: {event_date}
-- Time: {event_time}
-- Location: {event_location}
-
-Your Volunteer Shift:
-- Shift: {shift_title}
-- Date: {shift_date}
-- Time: {shift_start_time} - {shift_end_time}
-
-If you have any questions about these changes, please contact us.
-
-Thank you for your understanding!
-
-Best regards,
-Lewis County Democrats', 'lcd-events')
-            ],
-            'shift_change' => [
-                'subject' => __('Your volunteer shift has been updated - {event_title}', 'lcd-events'),
-                'content' => __('Hi {volunteer_name},
-
-There has been a change to your volunteer shift for {event_title}.
-
-Updated Shift Details:
-- Event: {event_title}
-- Shift: {shift_title}
-- Date: {shift_date}
-- Time: {shift_start_time} - {shift_end_time}
-- Description: {shift_description}
-
-Event Information:
-- Date: {event_date}
-- Time: {event_time}
-- Location: {event_location}
-
-If you have any questions about these changes or cannot accommodate the new schedule, please contact us as soon as possible.
-
-Thank you for your flexibility!
-
-Best regards,
-Lewis County Democrats', 'lcd-events')
-            ]
-        ];
-    }
-
-    /**
-     * Email Settings Page Callback
-     */
-    public function email_settings_page_callback() {
-        ?>
-        <div class="wrap">
-            <h1><?php _e('Volunteer Email Templates', 'lcd-events'); ?></h1>
-            
-            <form method="post" action="options.php">
-                <?php
-                settings_fields('lcd_volunteer_email_settings');
-                do_settings_sections('lcd_volunteer_email_settings');
-                submit_button();
-                ?>
-            </form>
-
-            <div class="lcd-email-help">
-                <h3><?php _e('ZeptoMail Merge Variables', 'lcd-events'); ?></h3>
-                <p><?php _e('When using ZeptoMail templates, these variables will be passed as merge data to your templates. Make sure your ZeptoMail templates use these exact variable names.', 'lcd-events'); ?></p>
-                
-                <div class="lcd-template-variables">
-                    <div class="variable-group">
-                        <h4><?php _e('Volunteer Information', 'lcd-events'); ?></h4>
-                        <ul>
-                            <li><code>volunteer_name</code> - <?php _e('Volunteer\'s name', 'lcd-events'); ?></li>
-                            <li><code>volunteer_email</code> - <?php _e('Volunteer\'s email', 'lcd-events'); ?></li>
-                            <li><code>volunteer_phone</code> - <?php _e('Volunteer\'s phone number', 'lcd-events'); ?></li>
-                        </ul>
-                    </div>
-                    
-                    <div class="variable-group">
-                        <h4><?php _e('Event Information', 'lcd-events'); ?></h4>
-                        <ul>
-                            <li><code>event_title</code> - <?php _e('Event title', 'lcd-events'); ?></li>
-                            <li><code>event_date</code> - <?php _e('Event date', 'lcd-events'); ?></li>
-                            <li><code>event_time</code> - <?php _e('Event start time', 'lcd-events'); ?></li>
-                            <li><code>event_location</code> - <?php _e('Event location', 'lcd-events'); ?></li>
-                            <li><code>event_address</code> - <?php _e('Event address', 'lcd-events'); ?></li>
-                            <li><code>event_url</code> - <?php _e('Event page URL', 'lcd-events'); ?></li>
-                        </ul>
-                    </div>
-                    
-                    <div class="variable-group">
-                        <h4><?php _e('Shift Information', 'lcd-events'); ?></h4>
-                        <ul>
-                            <li><code>shift_title</code> - <?php _e('Shift title', 'lcd-events'); ?></li>
-                            <li><code>shift_description</code> - <?php _e('Shift description', 'lcd-events'); ?></li>
-                            <li><code>shift_date</code> - <?php _e('Shift date', 'lcd-events'); ?></li>
-                            <li><code>shift_start_time</code> - <?php _e('Shift start time', 'lcd-events'); ?></li>
-                            <li><code>shift_end_time</code> - <?php _e('Shift end time', 'lcd-events'); ?></li>
-                        </ul>
-                    </div>
-                    
-                    <div class="variable-group">
-                        <h4><?php _e('Special Variables', 'lcd-events'); ?></h4>
-                        <ul>
-                            <li><code>update_message</code> - <?php _e('Custom update message (for event updates)', 'lcd-events'); ?></li>
-                            <li><code>site_name</code> - <?php _e('Website name', 'lcd-events'); ?></li>
-                            <li><code>current_date</code> - <?php _e('Current date', 'lcd-events'); ?></li>
-                        </ul>
-                    </div>
-                </div>
-                
-                <div class="lcd-test-email-section">
-                    <h3><?php _e('Test Email Functionality', 'lcd-events'); ?></h3>
-                    <p><?php _e('Send a test email to verify your settings are working correctly.', 'lcd-events'); ?></p>
-                    <div class="test-email-form">
-                        <input type="email" id="test-email-address" placeholder="<?php esc_attr_e('Enter test email address', 'lcd-events'); ?>" class="regular-text">
-                        <select id="test-email-type">
-                            <?php foreach ($this->get_email_types() as $type => $label) : ?>
-                                <option value="<?php echo esc_attr($type); ?>"><?php echo esc_html($label); ?></option>
-                            <?php endforeach; ?>
-                        </select>
-                        <button type="button" id="send-test-email" class="button button-secondary">
-                            <?php _e('Send Test Email', 'lcd-events'); ?>
-                        </button>
-                    </div>
-                    <div id="test-email-result" style="margin-top: 10px;"></div>
-                </div>
-            </div>
-
-            <!-- Template Preview Modal -->
-            <div id="template-preview-modal" style="display: none;">
-                <div class="template-preview-overlay">
-                    <div class="template-preview-content">
-                        <div class="template-preview-header">
-                            <h3><?php _e('ZeptoMail Template Preview', 'lcd-events'); ?></h3>
-                            <button type="button" class="template-preview-close">&times;</button>
-                        </div>
-                        <div class="template-preview-body">
-                            <div class="template-preview-info">
-                                <h4><?php _e('Template Information', 'lcd-events'); ?></h4>
-                                <div id="template-info-content"></div>
-                            </div>
-                            <div class="template-preview-merge">
-                                <h4><?php _e('Sample Merge Data', 'lcd-events'); ?></h4>
-                                <div id="template-merge-content"></div>
-                            </div>
-                            <div class="template-preview-html">
-                                <h4><?php _e('Template HTML', 'lcd-events'); ?></h4>
-                                <div id="template-html-content"></div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        <script>
-        jQuery(document).ready(function($) {
-            // Test email functionality
-            $('#send-test-email').on('click', function() {
-                var email = $('#test-email-address').val();
-                var type = $('#test-email-type').val();
-                var $button = $(this);
-                var $result = $('#test-email-result');
-                
-                if (!email) {
-                    alert('<?php _e('Please enter a test email address', 'lcd-events'); ?>');
-                    return;
-                }
-                
-                $button.prop('disabled', true).text('<?php _e('Sending...', 'lcd-events'); ?>');
-                $result.hide();
-                
-                $.ajax({
-                    url: ajaxurl,
-                    type: 'POST',
-                    data: {
-                        action: 'lcd_send_test_email',
-                        email: email,
-                        type: type,
-                        nonce: '<?php echo wp_create_nonce('lcd_send_test_email'); ?>'
-                    },
-                    success: function(response) {
-                        if (response.success) {
-                            $result.removeClass('error').addClass('success').text(response.data.message).show();
-                        } else {
-                            $result.removeClass('success').addClass('error').text(response.data.message).show();
-                        }
-                    },
-                    error: function() {
-                        $result.removeClass('success').addClass('error').text('<?php _e('Error sending test email', 'lcd-events'); ?>').show();
-                    },
-                    complete: function() {
-                        $button.prop('disabled', false).text('<?php _e('Send Test Email', 'lcd-events'); ?>');
-                    }
-                });
-            });
-
-            // Refresh ZeptoMail templates
-            $('#refresh-templates').on('click', function() {
-                var $button = $(this);
-                var $result = $('#template-refresh-result');
-                
-                $button.prop('disabled', true).text('<?php _e('Refreshing...', 'lcd-events'); ?>');
-                $result.hide();
-                
-                $.ajax({
-                    url: ajaxurl,
-                    type: 'POST',
-                    data: {
-                        action: 'lcd_refresh_zeptomail_templates',
-                        nonce: '<?php echo wp_create_nonce('lcd_refresh_zeptomail_templates'); ?>'
-                    },
-                    success: function(response) {
-                        if (response.success) {
-                            $result.removeClass('error').addClass('success').text(response.data.message).show();
-                            
-                            // Update template dropdowns
-                            response.data.templates.forEach(function(template) {
-                                $('.template-select').each(function() {
-                                    var $select = $(this);
-                                    var currentValue = $select.val();
-                                    
-                                    // Only add if not already present
-                                    if ($select.find('option[value="' + template.template_key + '"]').length === 0) {
-                                        $select.append('<option value="' + template.template_key + '">' + template.template_name + '</option>');
-                                    }
-                                });
-                            });
-                            
-                            // Refresh the page to show updated dropdowns properly
-                            setTimeout(function() {
-                                location.reload();
-                            }, 2000);
-                        } else {
-                            $result.removeClass('success').addClass('error').text(response.data.message).show();
-                        }
-                    },
-                    error: function() {
-                        $result.removeClass('success').addClass('error').text('<?php _e('Error refreshing templates', 'lcd-events'); ?>').show();
-                    },
-                    complete: function() {
-                        $button.prop('disabled', false).text('<?php _e('Refresh Templates from ZeptoMail', 'lcd-events'); ?>');
-                    }
-                });
-            });
-
-            // Preview template functionality
-            $(document).on('click', '.preview-template', function() {
-                var templateKey = $(this).data('template-key');
-                var emailType = $(this).closest('.template-mapping-row').data('email-type');
-                
-                $.ajax({
-                    url: ajaxurl,
-                    type: 'POST',
-                    data: {
-                        action: 'lcd_preview_zeptomail_template',
-                        template_key: templateKey,
-                        email_type: emailType,
-                        nonce: '<?php echo wp_create_nonce('lcd_preview_zeptomail_template'); ?>'
-                    },
-                    success: function(response) {
-                        if (response.success) {
-                            showTemplatePreview(response.data);
-                        } else {
-                            alert('<?php _e('Error loading template preview: ', 'lcd-events'); ?>' + response.data.message);
-                        }
-                    },
-                    error: function() {
-                        alert('<?php _e('Error loading template preview', 'lcd-events'); ?>');
-                    }
-                });
-            });
-
-            // Handle template selection changes
-            $(document).on('change', '.template-select', function() {
-                var $select = $(this);
-                var $row = $select.closest('.template-mapping-row');
-                var $previewBtn = $row.find('.preview-template');
-                var selectedTemplate = $select.val();
-                
-                if (selectedTemplate) {
-                    if ($previewBtn.length === 0) {
-                        $select.after('<button type="button" class="button button-secondary preview-template" data-template-key="' + selectedTemplate + '" style="margin-left: 10px;"><?php _e('Preview Template', 'lcd-events'); ?></button>');
-                    } else {
-                        $previewBtn.data('template-key', selectedTemplate).show();
-                    }
-                } else {
-                    $previewBtn.hide();
-                }
-            });
-
-            // Modal functionality
-            function showTemplatePreview(data) {
-                var template = data.template;
-                var mergeData = data.sample_merge_data;
-                
-                // Populate template info
-                var infoHtml = '<p><strong><?php _e('Template Name:', 'lcd-events'); ?></strong> ' + template.template_name + '</p>';
-                infoHtml += '<p><strong><?php _e('Template Key:', 'lcd-events'); ?></strong> ' + template.template_key + '</p>';
-                if (template.description) {
-                    infoHtml += '<p><strong><?php _e('Description:', 'lcd-events'); ?></strong> ' + template.description + '</p>';
-                }
-                $('#template-info-content').html(infoHtml);
-                
-                // Populate merge data
-                var mergeHtml = '<pre>' + JSON.stringify(mergeData, null, 2) + '</pre>';
-                $('#template-merge-content').html(mergeHtml);
-                
-                // Populate template HTML
-                var htmlContent = template.htmlbody || template.textbody || '<?php _e('No template content available', 'lcd-events'); ?>';
-                $('#template-html-content').html('<iframe srcdoc="' + htmlContent.replace(/"/g, '&quot;') + '" style="width: 100%; height: 400px; border: 1px solid #ddd;"></iframe>');
-                
-                // Show modal
-                $('#template-preview-modal').show();
-            }
-
-            // Close modal
-            $('.template-preview-close, .template-preview-overlay').on('click', function(e) {
-                if (e.target === this) {
-                    $('#template-preview-modal').hide();
-                }
-            });
-
-            // ESC key to close modal
-            $(document).on('keyup', function(e) {
-                if (e.keyCode === 27) {
-                    $('#template-preview-modal').hide();
-                }
-            });
-        });
-        </script>
-        <?php
-    }
-
-    /**
-     * Section callbacks
-     */
-    public function zeptomail_api_section_callback() {
-        echo '<p>' . __('Configure your ZeptoMail API credentials. You can find these in your ZeptoMail dashboard under Mail Agents.', 'lcd-events') . '</p>';
-    }
-
-    public function email_general_section_callback() {
-        echo '<p>' . __('Configure general email settings for volunteer notifications.', 'lcd-events') . '</p>';
-    }
-
-    public function template_mapping_section_callback() {
-        echo '<p>' . __('Map each email type to a ZeptoMail template. Templates will be loaded from your ZeptoMail account when API credentials are configured.', 'lcd-events') . '</p>';
-        echo '<button type="button" id="refresh-templates" class="button button-secondary">' . __('Refresh Templates from ZeptoMail', 'lcd-events') . '</button>';
-        echo '<div id="template-refresh-result"></div>';
-    }
-
-    /**
-     * Field callbacks
-     */
-    public function zeptomail_api_token_field_callback() {
-        $options = get_option('lcd_volunteer_email_settings', []);
-        $value = $options['zeptomail_api_token'] ?? '';
-        echo '<input type="password" name="lcd_volunteer_email_settings[zeptomail_api_token]" value="' . esc_attr($value) . '" class="regular-text" placeholder="' . esc_attr__('Your ZeptoMail Send Mail Token', 'lcd-events') . '">';
-        echo '<p class="description">' . __('Get this from ZeptoMail Dashboard → Mail Agents → Send Mail Token', 'lcd-events') . '</p>';
-    }
-
-    public function zeptomail_mailagent_alias_field_callback() {
-        $options = get_option('lcd_volunteer_email_settings', []);
-        $value = $options['zeptomail_mailagent_alias'] ?? '';
-        echo '<input type="text" name="lcd_volunteer_email_settings[zeptomail_mailagent_alias]" value="' . esc_attr($value) . '" class="regular-text" placeholder="' . esc_attr__('e.g., my-mail-agent', 'lcd-events') . '">';
-        echo '<p class="description">' . __('Unique alias for your Mail Agent, found in ZeptoMail Dashboard → Mail Agents → Setup Info', 'lcd-events') . '</p>';
-    }
-
-    public function enable_zeptomail_field_callback() {
-        $options = get_option('lcd_volunteer_email_settings', []);
-        $value = $options['enable_zeptomail'] ?? 0;
-        echo '<input type="checkbox" id="enable_zeptomail" name="lcd_volunteer_email_settings[enable_zeptomail]" value="1" ' . checked(1, $value, false) . '>';
-        echo '<label for="enable_zeptomail">' . __('Use ZeptoMail API for sending emails', 'lcd-events') . '</label>';
-        echo '<p class="description">' . __('When enabled, emails will be sent using ZeptoMail templates. When disabled, uses WordPress wp_mail().', 'lcd-events') . '</p>';
-    }
-
-    public function from_name_field_callback() {
-        $options = get_option('lcd_volunteer_email_settings', []);
-        $value = $options['from_name'] ?? get_bloginfo('name');
-        echo '<input type="text" name="lcd_volunteer_email_settings[from_name]" value="' . esc_attr($value) . '" class="regular-text">';
-        echo '<p class="description">' . __('Name that appears in the "From" field of emails.', 'lcd-events') . '</p>';
-    }
-
-    public function from_email_field_callback() {
-        $options = get_option('lcd_volunteer_email_settings', []);
-        $value = $options['from_email'] ?? get_option('admin_email');
-        echo '<input type="email" name="lcd_volunteer_email_settings[from_email]" value="' . esc_attr($value) . '" class="regular-text">';
-        echo '<p class="description">' . __('Email address that appears in the "From" field.', 'lcd-events') . '</p>';
-    }
-
-    public function reply_to_field_callback() {
-        $options = get_option('lcd_volunteer_email_settings', []);
-        $value = $options['reply_to'] ?? get_option('admin_email');
-        echo '<input type="email" name="lcd_volunteer_email_settings[reply_to]" value="' . esc_attr($value) . '" class="regular-text">';
-        echo '<p class="description">' . __('Email address for replies. Leave empty to use the From email.', 'lcd-events') . '</p>';
-    }
-
-    public function template_mapping_field_callback($args) {
-        $options = get_option('lcd_volunteer_email_settings', []);
-        $templates = $options['zeptomail_templates'] ?? [];
-        $selected_template = $options['template_mapping'][$args['type']] ?? '';
-        
-        echo '<div class="template-mapping-row" data-email-type="' . esc_attr($args['type']) . '">';
-        echo '<select name="lcd_volunteer_email_settings[template_mapping][' . esc_attr($args['type']) . ']" class="regular-text template-select">';
-        echo '<option value="">' . __('Select a ZeptoMail template...', 'lcd-events') . '</option>';
-        
-        foreach ($templates as $template) {
-            $selected = selected($selected_template, $template['template_key'], false);
-            echo '<option value="' . esc_attr($template['template_key']) . '" ' . $selected . '>' . esc_html($template['template_name']) . '</option>';
-        }
-        
-        echo '</select>';
-        
-        if ($selected_template) {
-            echo '<button type="button" class="button button-secondary preview-template" data-template-key="' . esc_attr($selected_template) . '" style="margin-left: 10px;">' . __('Preview Template', 'lcd-events') . '</button>';
-        }
-        
-        echo '<p class="description">' . sprintf(__('Select the ZeptoMail template for %s emails.', 'lcd-events'), $args['label']) . '</p>';
-        echo '</div>';
-    }
-
-    /**
-     * Sanitize email settings
-     */
-    public function sanitize_email_settings($input) {
-        $sanitized = [];
-        
-        // Sanitize ZeptoMail API settings
-        $sanitized['zeptomail_api_token'] = sanitize_text_field($input['zeptomail_api_token'] ?? '');
-        $sanitized['zeptomail_mailagent_alias'] = sanitize_text_field($input['zeptomail_mailagent_alias'] ?? '');
-        $sanitized['enable_zeptomail'] = isset($input['enable_zeptomail']) ? 1 : 0;
-        
-        // Sanitize general settings
-        $sanitized['from_name'] = sanitize_text_field($input['from_name'] ?? '');
-        $sanitized['from_email'] = sanitize_email($input['from_email'] ?? '');
-        $sanitized['reply_to'] = sanitize_email($input['reply_to'] ?? '');
-        
-        // Sanitize template mappings
-        if (isset($input['template_mapping']) && is_array($input['template_mapping'])) {
-            foreach ($input['template_mapping'] as $type => $template_key) {
-                $sanitized['template_mapping'][$type] = sanitize_text_field($template_key);
-            }
-        }
-        
-        // Preserve existing ZeptoMail templates data
-        $existing = get_option('lcd_volunteer_email_settings', []);
-        if (isset($existing['zeptomail_templates'])) {
-            $sanitized['zeptomail_templates'] = $existing['zeptomail_templates'];
-        }
-        
-        return $sanitized;
-    }
-
-    /**
-     * ZeptoMail API: Get templates from ZeptoMail
-     */
-    public function get_zeptomail_templates() {
-        $settings = get_option('lcd_volunteer_email_settings', []);
-        $api_token = $settings['zeptomail_api_token'] ?? '';
-        $mailagent_alias = $settings['zeptomail_mailagent_alias'] ?? '';
-        
-        if (empty($api_token) || empty($mailagent_alias)) {
-            return new WP_Error('missing_credentials', __('ZeptoMail API token and Mail Agent alias are required', 'lcd-events'));
-        }
-        
-        // Use the correct ZeptoMail API endpoint with mail agent alias
-        $url = "https://api.zeptomail.com/v1.1/mailagents/{$mailagent_alias}/templates";
-        
-        $response = wp_remote_get($url, [
-            'headers' => [
-                'Authorization' => 'Zoho-enczapikey ' . $api_token,
-                'Content-Type' => 'application/json',
-                'Accept' => 'application/json',
-            ],
-            'timeout' => 30
-        ]);
-        
-        if (is_wp_error($response)) {
-            return $response;
-        }
-        
-        $response_code = wp_remote_retrieve_response_code($response);
-        $body = wp_remote_retrieve_body($response);
-        $data = json_decode($body, true);
-        
-        if ($response_code !== 200) {
-            $error_message = 'Unknown API error';
-            if (isset($data['message'])) {
-                $error_message = $data['message'];
-            } elseif (isset($data['error_info'][0]['error_message'])) {
-                $error_message = $data['error_info'][0]['error_message'];
-            }
-            return new WP_Error('api_error', sprintf(__('ZeptoMail API Error (%d): %s', 'lcd-events'), $response_code, $error_message));
-        }
-        
-        return $data['data'] ?? [];
-    }
-
-    /**
-     * ZeptoMail API: Get specific template details
-     */
-    public function get_zeptomail_template($template_key) {
-        $settings = get_option('lcd_volunteer_email_settings', []);
-        $api_token = $settings['zeptomail_api_token'] ?? '';
-        $mailagent_alias = $settings['zeptomail_mailagent_alias'] ?? '';
-        
-        if (empty($api_token) || empty($mailagent_alias) || empty($template_key)) {
-            return new WP_Error('missing_params', __('API token, Mail Agent alias, and template key are required', 'lcd-events'));
-        }
-        
-        // Use the correct ZeptoMail API endpoint for template details
-        $url = "https://api.zeptomail.com/v1.1/mailagents/{$mailagent_alias}/templates/{$template_key}";
-        
-        $response = wp_remote_get($url, [
-            'headers' => [
-                'Authorization' => 'Zoho-enczapikey ' . $api_token,
-                'Content-Type' => 'application/json',
-                'Accept' => 'application/json',
-            ],
-            'timeout' => 30
-        ]);
-        
-        if (is_wp_error($response)) {
-            return $response;
-        }
-        
-        $response_code = wp_remote_retrieve_response_code($response);
-        $body = wp_remote_retrieve_body($response);
-        $data = json_decode($body, true);
-        
-        if ($response_code !== 200) {
-            $error_message = 'Unknown API error';
-            if (isset($data['message'])) {
-                $error_message = $data['message'];
-            } elseif (isset($data['error_info'][0]['error_message'])) {
-                $error_message = $data['error_info'][0]['error_message'];
-            }
-            return new WP_Error('api_error', sprintf(__('ZeptoMail API Error (%d): %s', 'lcd-events'), $response_code, $error_message));
-        }
-        
-        return $data['data'] ?? [];
-    }
-
-    /**
-     * ZeptoMail API: Send email using template
-     */
-    public function send_zeptomail_template($to_email, $template_key, $merge_data = [], $from_name = '', $from_email = '', $reply_to = '') {
-        $settings = get_option('lcd_volunteer_email_settings', []);
-        $api_token = $settings['zeptomail_api_token'] ?? '';
-        
-        if (empty($api_token) || empty($template_key) || empty($to_email)) {
-            error_log('ZeptoMail: Missing required parameters');
-            return false;
-        }
-        
-        // Use settings defaults if not provided
-        $from_name = $from_name ?: ($settings['from_name'] ?? get_bloginfo('name'));
-        $from_email = $from_email ?: ($settings['from_email'] ?? get_option('admin_email'));
-        $reply_to = $reply_to ?: ($settings['reply_to'] ?? $from_email);
-        
-        // Use the correct ZeptoMail API endpoint for sending emails
-        $url = "https://api.zeptomail.com/v1.1/email/template";
-        
-        $payload = [
-            'template_key' => $template_key,
-            'to' => [
-                [
-                    'email_address' => [
-                        'address' => $to_email,
-                        'name' => $merge_data['volunteer_name'] ?? ''
-                    ]
-                ]
-            ],
-            'from' => [
-                'address' => $from_email,
-                'name' => $from_name
-            ],
-            'reply_to' => [
-                [
-                    'address' => $reply_to,
-                    'name' => $from_name
-                ]
-            ],
-            'merge_info' => $merge_data
-        ];
-        
-        $response = wp_remote_post($url, [
-            'headers' => [
-                'Authorization' => 'Zoho-enczapikey ' . $api_token,
-                'Content-Type' => 'application/json',
-                'Accept' => 'application/json',
-            ],
-            'body' => json_encode($payload),
-            'timeout' => 30
-        ]);
-        
-        if (is_wp_error($response)) {
-            error_log('ZeptoMail API Error: ' . $response->get_error_message());
-            return false;
-        }
-        
-        $response_code = wp_remote_retrieve_response_code($response);
-        $body = wp_remote_retrieve_body($response);
-        $data = json_decode($body, true);
-        
-        if ($response_code !== 200) {
-            $error_message = 'Unknown error';
-            if (isset($data['message'])) {
-                $error_message = $data['message'];
-            } elseif (isset($data['error_info'][0]['error_message'])) {
-                $error_message = $data['error_info'][0]['error_message'];
-            }
-            error_log('ZeptoMail API Error (' . $response_code . '): ' . $error_message);
-            return false;
-        }
-        
-        return true;
-    }
-
-    /**
-     * Send email using ZeptoMail API or wp_mail
-     */
-    public function send_volunteer_email($email_type, $volunteer_data, $event_data, $shift_data = null, $additional_data = []) {
-        $settings = get_option('lcd_volunteer_email_settings', []);
-        $enable_zeptomail = $settings['enable_zeptomail'] ?? false;
-        
-        // Get recipient email
-        $to_email = $volunteer_data['email'] ?? '';
-        if (empty($to_email)) {
-            error_log("LCD Events: No email address provided for volunteer");
-            return false;
-        }
-        
-        // Prepare merge variables for ZeptoMail or template variables for wp_mail
-        $merge_data = $this->prepare_email_variables($volunteer_data, $event_data, $shift_data, $additional_data);
-        
-        $result = false;
-        
-        if ($enable_zeptomail) {
-            // Use ZeptoMail Template API
-            $template_mapping = $settings['template_mapping'] ?? [];
-            $template_key = $template_mapping[$email_type] ?? '';
-            
-            if (empty($template_key)) {
-                error_log("LCD Events: No ZeptoMail template mapped for email type '$email_type'");
-                return false;
-            }
-            
-            $result = $this->send_zeptomail_template(
-                $to_email,
-                $template_key,
-                $merge_data,
-                $settings['from_name'] ?? get_bloginfo('name'),
-                $settings['from_email'] ?? get_option('admin_email'),
-                $settings['reply_to'] ?? ($settings['from_email'] ?? get_option('admin_email'))
-            );
-        } else {
-            // Use WordPress wp_mail with fallback templates
-            $templates = $settings['templates'] ?? [];
-            $defaults = $this->get_default_email_templates();
-            
-            // Get template
-            $template = $templates[$email_type] ?? $defaults[$email_type] ?? null;
-            if (!$template) {
-                error_log("LCD Events: Email template '$email_type' not found");
-                return false;
-            }
-            
-            // Replace variables in subject and content
-            $subject = $this->replace_email_variables($template['subject'], $merge_data);
-            $content = $this->replace_email_variables($template['content'], $merge_data);
-            
-            // Prepare email headers
-            $headers = [];
-            $from_name = $settings['from_name'] ?? get_bloginfo('name');
-            $from_email = $settings['from_email'] ?? get_option('admin_email');
-            $reply_to = $settings['reply_to'] ?? $from_email;
-            
-            $headers[] = 'From: ' . $from_name . ' <' . $from_email . '>';
-            $headers[] = 'Reply-To: ' . $reply_to;
-            $headers[] = 'Content-Type: text/plain; charset=UTF-8';
-            
-            $result = wp_mail($to_email, $subject, $content, $headers);
-        }
-        
-        // Track email statistics
-        if ($result) {
-            $this->update_email_stats($email_type);
-        }
-        
-        return $result;
-    }
-
-    /**
-     * Prepare email template variables
-     */
-    private function prepare_email_variables($volunteer_data, $event_data, $shift_data = null, $additional_data = []) {
-        $variables = [];
-        
-        // Volunteer information
-        $variables['volunteer_name'] = $volunteer_data['name'] ?? '';
-        $variables['volunteer_email'] = $volunteer_data['email'] ?? '';
-        $variables['volunteer_phone'] = $volunteer_data['phone'] ?? '';
-        
-        // Event information
-        $variables['event_title'] = $event_data['title'] ?? '';
-        $variables['event_date'] = !empty($event_data['date']) ? date_i18n(get_option('date_format'), strtotime($event_data['date'])) : '';
-        $variables['event_time'] = !empty($event_data['time']) ? date_i18n(get_option('time_format'), strtotime($event_data['date'] . ' ' . $event_data['time'])) : '';
-        $variables['event_location'] = $event_data['location'] ?? '';
-        $variables['event_address'] = $event_data['address'] ?? '';
-        $variables['event_url'] = $event_data['url'] ?? '';
-        
-        // Shift information
-        if ($shift_data) {
-            $variables['shift_title'] = $shift_data['title'] ?? '';
-            $variables['shift_description'] = $shift_data['description'] ?? '';
-            $variables['shift_date'] = !empty($shift_data['date']) ? date_i18n(get_option('date_format'), strtotime($shift_data['date'])) : '';
-            $variables['shift_start_time'] = !empty($shift_data['start_time']) ? date_i18n(get_option('time_format'), strtotime($shift_data['date'] . ' ' . $shift_data['start_time'])) : '';
-            $variables['shift_end_time'] = !empty($shift_data['end_time']) ? date_i18n(get_option('time_format'), strtotime($shift_data['date'] . ' ' . $shift_data['end_time'])) : '';
-        }
-        
-        // Additional/special variables
-        $variables['site_name'] = get_bloginfo('name');
-        $variables['current_date'] = date_i18n(get_option('date_format'));
-        
-        // Merge any additional data
-        $variables = array_merge($variables, $additional_data);
-        
-        return $variables;
-    }
-
-    /**
-     * Replace variables in email template
-     */
-    private function replace_email_variables($template, $variables) {
-        foreach ($variables as $key => $value) {
-            $template = str_replace('{' . $key . '}', $value, $template);
-        }
-        return $template;
-    }
-
-    /**
-     * AJAX handler for sending test emails
-     */
-    public function ajax_send_test_email() {
-        check_ajax_referer('lcd_send_test_email', 'nonce');
-        
-        if (!current_user_can('manage_options')) {
-            wp_send_json_error(['message' => __('Permission denied.', 'lcd-events')]);
-            return;
-        }
-        
-        $test_email = sanitize_email($_POST['email'] ?? '');
-        $email_type = sanitize_text_field($_POST['type'] ?? '');
-        
-        if (empty($test_email) || empty($email_type)) {
-            wp_send_json_error(['message' => __('Missing email address or email type.', 'lcd-events')]);
-            return;
-        }
-        
-        // Prepare test data
-        $volunteer_data = [
-            'name' => 'John Doe',
-            'email' => $test_email,
-            'phone' => '(555) 123-4567'
-        ];
-        
-        $event_data = [
-            'title' => 'Test Event - Democratic Rally',
-            'date' => date('Y-m-d', strtotime('+1 week')),
-            'time' => '18:00',
-            'location' => 'Community Center',
-            'address' => '123 Main Street, Centralia, WA 98531',
-            'url' => home_url('/events/test-event/')
-        ];
-        
-        $shift_data = [
-            'title' => 'Event Setup Crew',
-            'description' => 'Help set up chairs, tables, and audio equipment before the event.',
-            'date' => date('Y-m-d', strtotime('+1 week')),
-            'start_time' => '16:00',
-            'end_time' => '18:00'
-        ];
-        
-        $additional_data = [
-            'update_message' => 'We have moved the event to a larger venue to accommodate more attendees. All other details remain the same.'
-        ];
-        
-        // Send test email
-        $sent = $this->send_volunteer_email($email_type, $volunteer_data, $event_data, $shift_data, $additional_data);
-        
-        if ($sent) {
-            wp_send_json_success(['message' => sprintf(__('Test email sent successfully to %s', 'lcd-events'), $test_email)]);
-        } else {
-            wp_send_json_error(['message' => __('Failed to send test email. Please check your email settings.', 'lcd-events')]);
-        }
-    }
-
-    /**
-     * AJAX handler for refreshing ZeptoMail templates
-     */
-    public function ajax_refresh_zeptomail_templates() {
-        check_ajax_referer('lcd_refresh_zeptomail_templates', 'nonce');
-        
-        if (!current_user_can('manage_options')) {
-            wp_send_json_error(['message' => __('Permission denied.', 'lcd-events')]);
-            return;
-        }
-        
-        $templates = $this->get_zeptomail_templates();
-        
-        if (is_wp_error($templates)) {
-            wp_send_json_error(['message' => $templates->get_error_message()]);
-            return;
-        }
-        
-        // Store templates in settings
-        $settings = get_option('lcd_volunteer_email_settings', []);
-        $settings['zeptomail_templates'] = $templates;
-        update_option('lcd_volunteer_email_settings', $settings);
-        
-        wp_send_json_success([
-            'message' => sprintf(__('Successfully loaded %d templates from ZeptoMail', 'lcd-events'), count($templates)),
-            'templates' => $templates
-        ]);
-    }
-
-    /**
-     * AJAX handler for previewing ZeptoMail templates
-     */
-    public function ajax_preview_zeptomail_template() {
-        check_ajax_referer('lcd_preview_zeptomail_template', 'nonce');
-        
-        if (!current_user_can('manage_options')) {
-            wp_send_json_error(['message' => __('Permission denied.', 'lcd-events')]);
-            return;
-        }
-        
-        $template_key = sanitize_text_field($_POST['template_key'] ?? '');
-        $email_type = sanitize_text_field($_POST['email_type'] ?? '');
-        
-        if (empty($template_key)) {
-            wp_send_json_error(['message' => __('Template key is required.', 'lcd-events')]);
-            return;
-        }
-        
-        $template_details = $this->get_zeptomail_template($template_key);
-        
-        if (is_wp_error($template_details)) {
-            wp_send_json_error(['message' => $template_details->get_error_message()]);
-            return;
-        }
-        
-        // Prepare sample merge data
-        $sample_merge_data = $this->get_sample_merge_data($email_type);
-        
-        wp_send_json_success([
-            'template' => $template_details,
-            'sample_merge_data' => $sample_merge_data
-        ]);
-    }
-
-    /**
-     * Get sample merge data for template preview
-     */
-    private function get_sample_merge_data($email_type = '') {
-        $sample_data = [
-            'volunteer_name' => 'John Doe',
-            'volunteer_email' => 'john.doe@example.com',
-            'volunteer_phone' => '(555) 123-4567',
-            'event_title' => 'Democratic Town Hall Meeting',
-            'event_date' => date_i18n(get_option('date_format'), strtotime('+1 week')),
-            'event_time' => date_i18n(get_option('time_format'), strtotime('18:00')),
-            'event_location' => 'Community Center',
-            'event_address' => '123 Main Street, Centralia, WA 98531',
-            'event_url' => home_url('/events/sample-event/'),
-            'shift_title' => 'Event Setup Crew',
-            'shift_description' => 'Help set up chairs, tables, and audio equipment before the event.',
-            'shift_date' => date_i18n(get_option('date_format'), strtotime('+1 week')),
-            'shift_start_time' => date_i18n(get_option('time_format'), strtotime('16:00')),
-            'shift_end_time' => date_i18n(get_option('time_format'), strtotime('18:00')),
-            'site_name' => get_bloginfo('name'),
-            'current_date' => date_i18n(get_option('date_format'))
-        ];
-        
-        // Add specific data based on email type
-        if ($email_type === 'event_update') {
-            $sample_data['update_message'] = 'We have moved the event to a larger venue to accommodate more attendees. All other details remain the same.';
-        }
-        
-        return $sample_data;
-    }
 
     /**
      * Send confirmation email when volunteer is assigned
      */
-    public function send_volunteer_confirmation_email($event_id, $shift_data, $volunteer_data) {
+    public function send_volunteer_confirmation_email($event_id, $shift_data, $volunteer_data, $additional_message = '') {
         $event = get_post($event_id);
         if (!$event) return false;
         
@@ -2895,13 +1162,22 @@ Lewis County Democrats', 'lcd-events')
             'url' => get_permalink($event_id)
         ];
         
-        return $this->send_volunteer_email('volunteer_confirmation', $volunteer_data, $event_data, $shift_data);
+        $additional_data = [
+            'additional_message' => $additional_message
+        ];
+        
+        // Delegate to email admin class
+        if (class_exists('LCD_Volunteer_Email_Admin')) {
+            $email_admin = LCD_Volunteer_Email_Admin::get_instance();
+            return $email_admin->send_volunteer_email('volunteer_confirmation', $volunteer_data, $event_data, $shift_data, $additional_data);
+        }
+        return false;
     }
 
     /**
      * Send cancellation email when volunteer is removed
      */
-    public function send_volunteer_cancellation_email($event_id, $shift_data, $volunteer_data) {
+    public function send_volunteer_cancellation_email($event_id, $shift_data, $volunteer_data, $additional_message = '') {
         $event = get_post($event_id);
         if (!$event) return false;
         
@@ -2914,20 +1190,98 @@ Lewis County Democrats', 'lcd-events')
             'url' => get_permalink($event_id)
         ];
         
-        return $this->send_volunteer_email('volunteer_cancellation', $volunteer_data, $event_data, $shift_data);
+        $additional_data = [
+            'additional_message' => $additional_message
+        ];
+        
+        // Delegate to email admin class
+        if (class_exists('LCD_Volunteer_Email_Admin')) {
+            $email_admin = LCD_Volunteer_Email_Admin::get_instance();
+            return $email_admin->send_volunteer_email('volunteer_cancellation', $volunteer_data, $event_data, $shift_data, $additional_data);
+        }
+        return false;
     }
 
     /**
-     * Send reminder emails for volunteers with shifts tomorrow
+     * Send request received email when volunteer request is submitted
+     */
+    public function send_volunteer_request_received_email($event_id, $shift_data, $volunteer_data) {
+        $event = get_post($event_id);
+        if (!$event) return false;
+        
+        $event_data = [
+            'title' => $event->post_title,
+            'date' => get_post_meta($event_id, '_event_date', true),
+            'time' => get_post_meta($event_id, '_event_time', true),
+            'location' => get_post_meta($event_id, '_event_location', true),
+            'address' => get_post_meta($event_id, '_event_address', true),
+            'url' => get_permalink($event_id)
+        ];
+        
+        // Delegate to email admin class
+        if (class_exists('LCD_Volunteer_Email_Admin')) {
+            $email_admin = LCD_Volunteer_Email_Admin::get_instance();
+            return $email_admin->send_volunteer_email('volunteer_request_received', $volunteer_data, $event_data, $shift_data);
+        }
+        return false;
+    }
+
+    /**
+     * Send request denied email when volunteer request is denied
+     *
+     * @param int $event_id Event ID
+     * @param array $shift_data Shift information
+     * @param array $volunteer_data Volunteer information
+     * @param string $additional_message Custom message explaining why the request was denied
+     */
+    public function send_volunteer_request_denied_email($event_id, $shift_data, $volunteer_data, $additional_message = '') {
+        $event = get_post($event_id);
+        if (!$event) return false;
+        
+        $event_data = [
+            'title' => $event->post_title,
+            'date' => get_post_meta($event_id, '_event_date', true),
+            'time' => get_post_meta($event_id, '_event_time', true),
+            'location' => get_post_meta($event_id, '_event_location', true),
+            'address' => get_post_meta($event_id, '_event_address', true),
+            'url' => get_permalink($event_id)
+        ];
+        
+        $additional_data = [
+            'additional_message' => $additional_message ?: __('Unfortunately, the shift is already full or no longer available.', 'lcd-events')
+        ];
+        
+        // Delegate to email admin class
+        if (class_exists('LCD_Volunteer_Email_Admin')) {
+            $email_admin = LCD_Volunteer_Email_Admin::get_instance();
+            return $email_admin->send_volunteer_email('volunteer_request_denied', $volunteer_data, $event_data, $shift_data, $additional_data);
+        }
+        return false;
+    }
+
+    /**
+     * Send reminder emails for volunteers with upcoming shifts
      */
     public function send_volunteer_reminders() {
         global $wpdb;
         
-        $table_name = $wpdb->prefix . 'lcd_volunteer_signups';
-        $tomorrow = date('Y-m-d', strtotime('+1 day'));
+        $settings = get_option('lcd_volunteer_email_settings', []);
+        $reminder_value = $settings['reminder_timing_value'] ?? 1;
+        $reminder_unit = $settings['reminder_timing_unit'] ?? 'days';
         
-        // Get all volunteer shifts for tomorrow
-        $shifts_tomorrow = $wpdb->get_results($wpdb->prepare(
+        // Calculate the target date for reminders
+        if ($reminder_unit === 'hours') {
+            $target_datetime = date('Y-m-d H:i:s', strtotime("+{$reminder_value} hours"));
+            $target_date = date('Y-m-d', strtotime("+{$reminder_value} hours"));
+        } else {
+            $target_datetime = date('Y-m-d H:i:s', strtotime("+{$reminder_value} days"));
+            $target_date = date('Y-m-d', strtotime("+{$reminder_value} days"));
+        }
+        
+        $table_name = $wpdb->prefix . 'lcd_volunteer_signups';
+        
+        // Get all volunteer shifts for the target date
+        $shifts_for_target_date = $wpdb->get_results($wpdb->prepare(
             "SELECT vs.*, p.post_title as event_title 
              FROM $table_name vs 
              LEFT JOIN {$wpdb->posts} p ON vs.event_id = p.ID 
@@ -2939,18 +1293,18 @@ Lewis County Democrats', 'lcd-events')
                  AND pm.meta_key = '_volunteer_shifts'
                  AND pm.meta_value LIKE %s
              )",
-            '%"date":"' . $tomorrow . '"%'
+            '%"date":"' . $target_date . '"%'
         ));
         
         $sent_count = 0;
         $failed_count = 0;
         
-        foreach ($shifts_tomorrow as $signup) {
+        foreach ($shifts_for_target_date as $signup) {
             $volunteer_shifts = get_post_meta($signup->event_id, '_volunteer_shifts', true);
             $shift_details = $volunteer_shifts[$signup->shift_index] ?? [];
             
-            // Only send if this shift is actually tomorrow
-            if (($shift_details['date'] ?? '') === $tomorrow) {
+            // Only send if this shift is actually on the target date
+            if (($shift_details['date'] ?? '') === $target_date) {
                 $volunteer_data = [
                     'name' => $signup->volunteer_name,
                     'email' => $signup->volunteer_email,
@@ -2966,11 +1320,17 @@ Lewis County Democrats', 'lcd-events')
                     'url' => get_permalink($signup->event_id)
                 ];
                 
-                if ($this->send_volunteer_email('volunteer_reminder', $volunteer_data, $event_data, $shift_details)) {
+                // Delegate to email admin class
+                $email_sent = false;
+                if (class_exists('LCD_Volunteer_Email_Admin')) {
+                    $email_admin = LCD_Volunteer_Email_Admin::get_instance();
+                    $email_sent = $email_admin->send_volunteer_email('volunteer_reminder', $volunteer_data, $event_data, $shift_details);
+                }
+                
+                if ($email_sent) {
                     $sent_count++;
                 } else {
                     $failed_count++;
-                    error_log("LCD Events: Failed to send reminder email to {$signup->volunteer_email} for event {$signup->event_id}");
                 }
             }
         }
@@ -2978,62 +1338,11 @@ Lewis County Democrats', 'lcd-events')
         return [
             'sent' => $sent_count,
             'failed' => $failed_count,
-            'total' => count($shifts_tomorrow)
+            'total' => count($shifts_for_target_date)
         ];
     }
 
-    /**
-     * Send event update email to all volunteers for an event
-     */
-    public function send_event_update_emails($event_id, $update_message) {
-        $event = get_post($event_id);
-        if (!$event) return false;
-        
-        $all_signups = $this->get_volunteer_signups($event_id);
-        if (empty($all_signups)) return false;
-        
-        $event_data = [
-            'title' => $event->post_title,
-            'date' => get_post_meta($event_id, '_event_date', true),
-            'time' => get_post_meta($event_id, '_event_time', true),
-            'location' => get_post_meta($event_id, '_event_location', true),
-            'address' => get_post_meta($event_id, '_event_address', true),
-            'url' => get_permalink($event_id)
-        ];
-        
-        $volunteer_shifts = get_post_meta($event_id, '_volunteer_shifts', true);
-        $sent_count = 0;
-        $failed_count = 0;
-        
-        foreach ($all_signups as $signup) {
-            if ($signup->status !== 'confirmed') continue;
-            
-            $shift_details = $volunteer_shifts[$signup->shift_index] ?? [];
-            
-            $volunteer_data = [
-                'name' => $signup->volunteer_name,
-                'email' => $signup->volunteer_email,
-                'phone' => $signup->volunteer_phone
-            ];
-            
-            $additional_data = [
-                'update_message' => $update_message
-            ];
-            
-            if ($this->send_volunteer_email('event_update', $volunteer_data, $event_data, $shift_details, $additional_data)) {
-                $sent_count++;
-            } else {
-                $failed_count++;
-                error_log("LCD Events: Failed to send update email to {$signup->volunteer_email} for event {$event_id}");
-            }
-        }
-        
-        return [
-            'sent' => $sent_count,
-            'failed' => $failed_count,
-            'total' => count($all_signups)
-        ];
-    }
+
 
     /**
      * Setup cron job for sending reminder emails
@@ -3061,7 +1370,6 @@ Lewis County Democrats', 'lcd-events')
             'confirmation_emails_sent' => 0,
             'cancellation_emails_sent' => 0,
             'reminder_emails_sent' => 0,
-            'update_emails_sent' => 0,
             'last_reminder_run' => null
         ]);
         
@@ -3078,6 +1386,760 @@ Lewis County Democrats', 'lcd-events')
         if (isset($stats[$stat_key])) {
             $stats[$stat_key] += $increment;
             update_option('lcd_volunteer_email_stats', $stats);
+        }
+    }
+
+    /**
+     * AJAX handler for volunteer opportunity signup from frontend
+     */
+    public function ajax_volunteer_opportunity_signup() {
+        $method = isset($_POST['method']) ? sanitize_text_field($_POST['method']) : '';
+        
+        // For logged-in users who came through the login flow, skip nonce check 
+        // and rely on WordPress's built-in logged-in user verification
+        if ($method === 'logged_in' && is_user_logged_in()) {
+            // Additional security: verify the user actually just logged in by checking user capabilities
+            if (!current_user_can('read')) {
+                wp_send_json_error(['message' => __('Security check failed.', 'lcd-events')], 403);
+                return;
+            }
+        } else {
+            // For guest and account signups, verify nonce
+            if (!isset($_POST['nonce']) || !wp_verify_nonce($_POST['nonce'], 'lcd_volunteer_opportunities')) {
+                wp_send_json_error(['message' => __('Security check failed.', 'lcd-events')], 403);
+                return;
+            }
+        }
+
+        $event_id = isset($_POST['event_id']) ? intval($_POST['event_id']) : 0;
+        $shift_index = isset($_POST['shift_index']) ? intval($_POST['shift_index']) : -1;
+        $shift_title = isset($_POST['shift_title']) ? sanitize_text_field($_POST['shift_title']) : '';
+        
+        // Basic validation
+        if (!$event_id || $shift_index < 0 || empty($method)) {
+            wp_send_json_error(['message' => __('Missing required data.', 'lcd-events')], 400);
+            return;
+        }
+
+        // Verify event and shift exist
+        $event_post = get_post($event_id);
+        if (!$event_post || $event_post->post_type !== 'event') {
+            wp_send_json_error(['message' => __('Event not found.', 'lcd-events')], 404);
+            return;
+        }
+
+        $volunteer_shifts = get_post_meta($event_id, '_volunteer_shifts', true);
+        if (!is_array($volunteer_shifts) || !isset($volunteer_shifts[$shift_index])) {
+            wp_send_json_error(['message' => __('Volunteer shift not found.', 'lcd-events')], 404);
+            return;
+        }
+
+        $shift_details = $volunteer_shifts[$shift_index];
+
+        // Check if shift is full
+        $current_signups = $this->get_shift_signup_count($event_id, $shift_index);
+        $max_volunteers = intval($shift_details['max_volunteers'] ?? 0);
+        if ($max_volunteers > 0 && $current_signups >= $max_volunteers) {
+            wp_send_json_error(['message' => __('This volunteer shift is full.', 'lcd-events')], 409);
+            return;
+        }
+
+        // Handle different signup methods
+        switch ($method) {
+            case 'logged_in':
+                $result = $this->handle_logged_in_signup($event_id, $shift_index, $shift_title, $shift_details);
+                break;
+                
+            case 'guest':
+                $result = $this->handle_guest_signup($event_id, $shift_index, $shift_title, $shift_details);
+                break;
+                
+            case 'account':
+                $result = $this->handle_account_signup($event_id, $shift_index, $shift_title, $shift_details);
+                break;
+                
+            default:
+                wp_send_json_error(['message' => __('Invalid signup method.', 'lcd-events')], 400);
+                return;
+        }
+
+        if ($result['success']) {
+            wp_send_json_success($result['data']);
+        } else {
+            wp_send_json_error($result['data']);
+        }
+    }
+
+    /**
+     * Handle signup for logged-in users
+     */
+    private function handle_logged_in_signup($event_id, $shift_index, $shift_title, $shift_details) {
+        $user = wp_get_current_user();
+        if (!$user || !$user->ID) {
+            return [
+                'success' => false,
+                'data' => ['message' => __('You must be logged in to use this signup method.', 'lcd-events')]
+            ];
+        }
+
+        // Try to find associated person record
+        $person_id = null;
+        $person_query = new WP_Query([
+            'post_type' => 'lcd_person',
+            'meta_query' => [
+                [
+                    'key' => '_lcd_person_user_id',
+                    'value' => $user->ID,
+                    'compare' => '='
+                ]
+            ],
+            'posts_per_page' => 1
+        ]);
+
+        if ($person_query->have_posts()) {
+            $person_post = $person_query->posts[0];
+            $person_id = $person_post->ID;
+            $volunteer_name = $person_post->post_title;
+            $volunteer_email = get_post_meta($person_id, '_lcd_person_email', true) ?: $user->user_email;
+            $volunteer_phone = get_post_meta($person_id, '_lcd_person_phone', true) ?: '';
+        } else {
+            // No person record found, use user data
+            $volunteer_name = $user->display_name ?: $user->user_login;
+            $volunteer_email = $user->user_email;
+            $volunteer_phone = '';
+        }
+
+        wp_reset_postdata();
+
+        // Check for duplicate signup
+        if ($this->check_duplicate_signup($event_id, $shift_index, $volunteer_email, $person_id)) {
+            return [
+                'success' => false,
+                'data' => ['message' => __('You are already signed up for this shift.', 'lcd-events')]
+            ];
+        }
+
+        // Create signup record (unconfirmed - requires admin approval)
+        $signup_result = $this->create_volunteer_signup([
+            'event_id' => $event_id,
+            'shift_index' => $shift_index,
+            'shift_title' => $shift_title,
+            'volunteer_name' => $volunteer_name,
+            'volunteer_email' => $volunteer_email,
+            'volunteer_phone' => $volunteer_phone,
+            'volunteer_notes' => '',
+            'user_id' => $user->ID,
+            'person_id' => $person_id,
+            'status' => 'unconfirmed'
+        ]);
+
+        if (!$signup_result) {
+            return [
+                'success' => false,
+                'data' => ['message' => __('Failed to create signup record.', 'lcd-events')]
+            ];
+        }
+
+        // Send request received email (not confirmation)
+        $this->send_volunteer_request_received_email($event_id, $shift_details, [
+            'name' => $volunteer_name,
+            'email' => $volunteer_email,
+            'phone' => $volunteer_phone
+        ]);
+
+        return [
+            'success' => true,
+            'data' => [
+                'message' => __('Thank you for your volunteer request! We\'ve sent a confirmation to your email and will review your request shortly.', 'lcd-events')
+            ]
+        ];
+    }
+
+    /**
+     * Handle guest signup (no account creation)
+     */
+    private function handle_guest_signup($event_id, $shift_index, $shift_title, $shift_details) {
+        $first_name = sanitize_text_field($_POST['first_name'] ?? '');
+        $last_name = sanitize_text_field($_POST['last_name'] ?? '');
+        $volunteer_email = sanitize_email($_POST['email'] ?? '');
+        $volunteer_phone = sanitize_text_field($_POST['phone'] ?? '');
+        $volunteer_notes = sanitize_textarea_field($_POST['notes'] ?? '');
+
+        // Combine first and last name for display
+        $volunteer_name = trim($first_name . ' ' . $last_name);
+
+        // Validation
+        if (empty($first_name) || empty($last_name) || empty($volunteer_email)) {
+            return [
+                'success' => false,
+                'data' => ['message' => __('First name, last name, and email are required.', 'lcd-events')]
+            ];
+        }
+
+        if (!is_email($volunteer_email)) {
+            return [
+                'success' => false,
+                'data' => ['message' => __('Please enter a valid email address.', 'lcd-events')]
+            ];
+        }
+
+        // Check for duplicate signup
+        if ($this->check_duplicate_signup($event_id, $shift_index, $volunteer_email)) {
+            return [
+                'success' => false,
+                'data' => ['message' => __('This email address is already signed up for this shift.', 'lcd-events')]
+            ];
+        }
+
+        // Create or update person record
+        $person_id = $this->create_or_update_person_record($volunteer_name, $volunteer_email, $volunteer_phone, $first_name, $last_name);
+
+        // Create signup record (unconfirmed - requires admin approval)
+        $signup_result = $this->create_volunteer_signup([
+            'event_id' => $event_id,
+            'shift_index' => $shift_index,
+            'shift_title' => $shift_title,
+            'volunteer_name' => $volunteer_name,
+            'volunteer_email' => $volunteer_email,
+            'volunteer_phone' => $volunteer_phone,
+            'volunteer_notes' => $volunteer_notes,
+            'user_id' => null,
+            'person_id' => $person_id,
+            'status' => 'unconfirmed'
+        ]);
+
+        if (!$signup_result) {
+            return [
+                'success' => false,
+                'data' => ['message' => __('Failed to create signup record.', 'lcd-events')]
+            ];
+        }
+
+        // Send request received email (not confirmation)
+        $this->send_volunteer_request_received_email($event_id, $shift_details, [
+            'name' => $volunteer_name,
+            'email' => $volunteer_email,
+            'phone' => $volunteer_phone
+        ]);
+
+        return [
+            'success' => true,
+            'data' => [
+                'message' => __('Thank you for your volunteer request! We\'ve sent a confirmation to your email and will review your request shortly.', 'lcd-events')
+            ]
+        ];
+    }
+
+    /**
+     * Handle signup with account creation option
+     */
+    private function handle_account_signup($event_id, $shift_index, $shift_title, $shift_details) {
+        $first_name = sanitize_text_field($_POST['first_name'] ?? '');
+        $last_name = sanitize_text_field($_POST['last_name'] ?? '');
+        $volunteer_email = sanitize_email($_POST['email'] ?? '');
+        $volunteer_phone = sanitize_text_field($_POST['phone'] ?? '');
+        $volunteer_notes = sanitize_textarea_field($_POST['notes'] ?? '');
+        $create_account = isset($_POST['create_account']) && $_POST['create_account'];
+
+        // Combine first and last name for display
+        $volunteer_name = trim($first_name . ' ' . $last_name);
+
+        // Validation
+        if (empty($first_name) || empty($last_name) || empty($volunteer_email)) {
+            return [
+                'success' => false,
+                'data' => ['message' => __('First name, last name, and email are required.', 'lcd-events')]
+            ];
+        }
+
+        if (!is_email($volunteer_email)) {
+            return [
+                'success' => false,
+                'data' => ['message' => __('Please enter a valid email address.', 'lcd-events')]
+            ];
+        }
+
+        // Check for duplicate signup
+        if ($this->check_duplicate_signup($event_id, $shift_index, $volunteer_email)) {
+            return [
+                'success' => false,
+                'data' => ['message' => __('This email address is already signed up for this shift.', 'lcd-events')]
+            ];
+        }
+
+        // Create or update person record
+        $person_id = $this->create_or_update_person_record($volunteer_name, $volunteer_email, $volunteer_phone, $first_name, $last_name);
+
+        // Create signup record (unconfirmed - requires admin approval)
+        $signup_result = $this->create_volunteer_signup([
+            'event_id' => $event_id,
+            'shift_index' => $shift_index,
+            'shift_title' => $shift_title,
+            'volunteer_name' => $volunteer_name,
+            'volunteer_email' => $volunteer_email,
+            'volunteer_phone' => $volunteer_phone,
+            'volunteer_notes' => $volunteer_notes,
+            'user_id' => null,
+            'person_id' => $person_id,
+            'status' => 'unconfirmed'
+        ]);
+
+        if (!$signup_result) {
+            return [
+                'success' => false,
+                'data' => ['message' => __('Failed to create signup record.', 'lcd-events')]
+            ];
+        }
+
+        // Send request received email (not confirmation)
+        $this->send_volunteer_request_received_email($event_id, $shift_details, [
+            'name' => $volunteer_name,
+            'email' => $volunteer_email,
+            'phone' => $volunteer_phone
+        ]);
+
+        $response_data = [
+            'message' => __('Thank you for your volunteer request! We\'ve sent a confirmation to your email and will review your request shortly.', 'lcd-events')
+        ];
+
+        // Handle account creation if requested
+        if ($create_account && $person_id) {
+            $account_result = $this->handle_account_creation_request($volunteer_email, $person_id);
+            if ($account_result['account_info']) {
+                $response_data['account_info'] = $account_result['account_info'];
+            }
+        }
+
+        return [
+            'success' => true,
+            'data' => $response_data
+        ];
+    }
+
+    /**
+     * Check if user/email is already signed up for this shift
+     */
+    private function check_duplicate_signup($event_id, $shift_index, $email, $person_id = null) {
+        global $wpdb;
+        $table_name = $wpdb->prefix . 'lcd_volunteer_signups';
+
+        // Check by email first
+        $existing = $wpdb->get_row($wpdb->prepare(
+            "SELECT id FROM $table_name WHERE event_id = %d AND shift_index = %d AND volunteer_email = %s",
+            $event_id, $shift_index, $email
+        ));
+
+        if ($existing) {
+            return true;
+        }
+
+        // If person_id is provided, also check by person_id
+        if ($person_id) {
+            $existing = $wpdb->get_row($wpdb->prepare(
+                "SELECT id FROM $table_name WHERE event_id = %d AND shift_index = %d AND person_id = %d",
+                $event_id, $shift_index, $person_id
+            ));
+
+            if ($existing) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Create or update person record
+     */
+    private function create_or_update_person_record($name, $email, $phone = '', $first_name = '', $last_name = '') {
+        // Check if person already exists by email
+        $existing_person = get_posts([
+            'post_type' => 'lcd_person',
+            'meta_query' => [
+                [
+                    'key' => '_lcd_person_email',
+                    'value' => $email,
+                    'compare' => '='
+                ]
+            ],
+            'posts_per_page' => 1
+        ]);
+
+        if (!empty($existing_person)) {
+            $person_id = $existing_person[0]->ID;
+            
+            // Update phone if provided and not already set
+            $existing_phone = get_post_meta($person_id, '_lcd_person_phone', true);
+            if (!empty($phone) && empty($existing_phone)) {
+                update_post_meta($person_id, '_lcd_person_phone', $phone);
+            }
+            
+            // Update first/last names if provided and not already set
+            if (!empty($first_name)) {
+                $existing_first_name = get_post_meta($person_id, '_lcd_person_first_name', true);
+                if (empty($existing_first_name)) {
+                    update_post_meta($person_id, '_lcd_person_first_name', $first_name);
+                }
+            }
+            
+            if (!empty($last_name)) {
+                $existing_last_name = get_post_meta($person_id, '_lcd_person_last_name', true);
+                if (empty($existing_last_name)) {
+                    update_post_meta($person_id, '_lcd_person_last_name', $last_name);
+                }
+            }
+            
+            return $person_id;
+        }
+
+        // Create new person record
+        $meta_input = [
+            '_lcd_person_email' => $email,
+            '_lcd_person_phone' => $phone,
+            '_lcd_person_membership_status' => 'supporter'
+        ];
+        
+        // Add first and last name if provided
+        if (!empty($first_name)) {
+            $meta_input['_lcd_person_first_name'] = $first_name;
+        }
+        if (!empty($last_name)) {
+            $meta_input['_lcd_person_last_name'] = $last_name;
+        }
+        
+        $person_data = [
+            'post_title' => $name,
+            'post_type' => 'lcd_person',
+            'post_status' => 'publish',
+            'meta_input' => $meta_input
+        ];
+
+        $person_id = wp_insert_post($person_data);
+        
+        return $person_id ?: null;
+    }
+
+    /**
+     * Create volunteer signup record
+     */
+    private function create_volunteer_signup($data) {
+        global $wpdb;
+        $table_name = $wpdb->prefix . 'lcd_volunteer_signups';
+
+        $signup_data = [
+            'event_id' => $data['event_id'],
+            'shift_index' => $data['shift_index'],
+            'shift_title' => $data['shift_title'],
+            'volunteer_name' => $data['volunteer_name'],
+            'volunteer_email' => $data['volunteer_email'],
+            'volunteer_phone' => $data['volunteer_phone'],
+            'volunteer_notes' => $data['volunteer_notes'],
+            'user_id' => $data['user_id'],
+            'person_id' => $data['person_id'],
+            'signup_date' => current_time('mysql'),
+            'status' => $data['status']
+        ];
+
+        $format = ['%d', '%d', '%s', '%s', '%s', '%s', '%s', '%d', '%d', '%s', '%s'];
+        
+        $result = $wpdb->insert($table_name, $signup_data, $format);
+        
+        return $result !== false;
+    }
+
+    /**
+     * Handle account creation request - create account directly during volunteer signup
+     */
+    private function handle_account_creation_request($email, $person_id) {
+        // Check if user already exists
+        $existing_user = get_user_by('email', $email);
+        
+        if ($existing_user) {
+            return [
+                'account_info' => sprintf(
+                    __('An account with this email already exists. You can <a href="%s">log in here</a>.', 'lcd-events'),
+                    wp_login_url()
+                )
+            ];
+        }
+
+        // Check if the LCD People plugin is available
+        if (!class_exists('LCD_People')) {
+            return [
+                'account_info' => __('Account creation is temporarily unavailable. Please contact us to set up your account.', 'lcd-events')
+            ];
+        }
+
+        // Get the LCD People instance to check for existing person records
+        $people_instance = null;
+        if (method_exists('LCD_People', 'get_instance')) {
+            $people_instance = call_user_func(array('LCD_People', 'get_instance'));
+        }
+
+        if (!$people_instance) {
+            return [
+                'account_info' => __('Account creation is temporarily unavailable. Please contact us to set up your account.', 'lcd-events')
+            ];
+        }
+
+        // Get person data from the person record we created
+        $person_post = get_post($person_id);
+        if (!$person_post) {
+            return [
+                'account_info' => __('There was an issue with your information. Please try again.', 'lcd-events')
+            ];
+        }
+
+        // Get person metadata
+        $first_name = get_post_meta($person_id, '_lcd_person_first_name', true);
+        $last_name = get_post_meta($person_id, '_lcd_person_last_name', true);
+        $display_name = trim($first_name . ' ' . $last_name);
+        
+        if (empty($display_name)) {
+            $display_name = $person_post->post_title;
+        }
+
+        // Generate a temporary password
+        $temp_password = wp_generate_password(12, false);
+
+        // Create user account
+        $user_data = array(
+            'user_login' => $email,
+            'user_email' => $email,
+            'user_pass' => $temp_password,
+            'first_name' => $first_name,
+            'last_name' => $last_name,
+            'display_name' => $display_name,
+            'role' => 'subscriber'
+        );
+
+        $user_id = wp_insert_user($user_data);
+
+        if (is_wp_error($user_id)) {
+            return [
+                'account_info' => __('Failed to create user account. Please contact us for assistance.', 'lcd-events')
+            ];
+        }
+
+        // Connect user to person record using LCD People's method
+        if (method_exists($people_instance, 'connect_user_to_person')) {
+            $people_instance->connect_user_to_person($user_id, $person_id);
+        } else {
+            // Fallback: connect manually
+            update_post_meta($person_id, '_lcd_person_user_id', $user_id);
+            update_user_meta($user_id, 'lcd_person_id', $person_id);
+        }
+
+        // Set registration date if not already set
+        $registration_date = get_post_meta($person_id, '_lcd_person_registration_date', true);
+        if (empty($registration_date)) {
+            update_post_meta($person_id, '_lcd_person_registration_date', current_time('Y-m-d'));
+        }
+
+        // Send password reset email instead of storing/sending temp password
+        $reset_key = get_password_reset_key(get_user_by('ID', $user_id));
+        if (!is_wp_error($reset_key)) {
+            $reset_url = network_site_url("wp-login.php?action=rp&key=$reset_key&login=" . rawurlencode($email), 'login');
+            
+            // Send custom email with account creation info
+            $site_name = get_bloginfo('name');
+            $subject = sprintf(__('Your new account at %s', 'lcd-events'), $site_name);
+            
+            $message = sprintf(
+                __('Hello %s!
+
+Your account has been created at %s as part of your volunteer signup.
+
+Username: %s
+
+To set your password and access your account, please click the link below:
+%s
+
+This link will expire in 24 hours. If you need a new password reset link, you can request one at:
+%s
+
+Thank you for volunteering!
+
+- %s', 'lcd-events'),
+                $display_name,
+                $site_name,
+                $email,
+                $reset_url,
+                wp_lostpassword_url(),
+                $site_name
+            );
+
+            wp_mail($email, $subject, $message);
+        }
+
+        return [
+            'account_info' => sprintf(
+                __('Your account has been created! We\'ve sent password setup instructions to %s. Please check your email to complete your account setup.', 'lcd-events'),
+                $email
+            )
+        ];
+    }
+
+    /**
+     * AJAX handler for modal login
+     */
+    public function ajax_volunteer_login() {
+        // Verify nonce
+        if (!isset($_POST['nonce']) || !wp_verify_nonce($_POST['nonce'], 'lcd_volunteer_opportunities')) {
+            wp_send_json_error(['message' => __('Security check failed.', 'lcd-events')], 403);
+            return;
+        }
+
+        $username = sanitize_text_field($_POST['username'] ?? '');
+        $password = $_POST['password'] ?? '';
+        $remember = isset($_POST['remember']) && $_POST['remember'];
+
+        if (empty($username) || empty($password)) {
+            wp_send_json_error(['message' => __('Please enter both username/email and password.', 'lcd-events')]);
+            return;
+        }
+
+        // Attempt to log in the user
+        $credentials = [
+            'user_login' => $username,
+            'user_password' => $password,
+            'remember' => $remember
+        ];
+
+        $user = wp_signon($credentials, false);
+
+        if (is_wp_error($user)) {
+            $error_message = $user->get_error_message();
+            
+            // Customize common error messages for better UX
+            if (strpos($error_message, 'Invalid username') !== false) {
+                $error_message = __('Invalid email or username. Please check your credentials and try again.', 'lcd-events');
+            } elseif (strpos($error_message, 'incorrect password') !== false) {
+                $error_message = __('Incorrect password. Please try again.', 'lcd-events');
+            }
+            
+            wp_send_json_error(['message' => $error_message]);
+            return;
+        }
+
+        // Login successful
+        wp_set_current_user($user->ID);
+        wp_set_auth_cookie($user->ID, $remember);
+
+        wp_send_json_success([
+            'message' => sprintf(__('Welcome back, %s!', 'lcd-events'), $user->display_name),
+            'user_id' => $user->ID,
+            'user_name' => $user->display_name
+        ]);
+    }
+
+    /**
+     * AJAX handler for saving individual shift
+     */
+    public function ajax_save_individual_shift() {
+        // Verify nonce
+        if (!isset($_POST['nonce']) || !wp_verify_nonce($_POST['nonce'], 'lcd_save_individual_shift')) {
+            wp_send_json_error(['message' => __('Security check failed.', 'lcd-events')], 403);
+            return;
+        }
+
+        if (!current_user_can('edit_posts')) {
+            wp_send_json_error(['message' => __('Permission denied.', 'lcd-events')], 403);
+            return;
+        }
+
+        $event_id = isset($_POST['event_id']) ? intval($_POST['event_id']) : 0;
+        $shift_index = isset($_POST['shift_index']) ? intval($_POST['shift_index']) : -1;
+        $shift_data = isset($_POST['shift_data']) ? $_POST['shift_data'] : array();
+
+        if (!$event_id || $shift_index < 0) {
+            wp_send_json_error(['message' => __('Missing required data.', 'lcd-events')], 400);
+            return;
+        }
+
+        // Verify event exists and user can edit it
+        $event_post = get_post($event_id);
+        if (!$event_post || $event_post->post_type !== 'event') {
+            wp_send_json_error(['message' => __('Event not found.', 'lcd-events')], 404);
+            return;
+        }
+
+        if (!current_user_can('edit_post', $event_id)) {
+            wp_send_json_error(['message' => __('Permission denied.', 'lcd-events')], 403);
+            return;
+        }
+
+        // Get existing volunteer shifts
+        $volunteer_shifts = get_post_meta($event_id, '_volunteer_shifts', true);
+        if (!is_array($volunteer_shifts)) {
+            $volunteer_shifts = array();
+        }
+
+        // Sanitize shift data
+        if (!is_array($shift_data)) {
+            wp_send_json_error(['message' => __('Invalid shift data format.', 'lcd-events')], 400);
+            return;
+        }
+
+        $sanitized_shift = array(
+            'title' => sanitize_text_field($shift_data['title'] ?? ''),
+            'description' => sanitize_textarea_field($shift_data['description'] ?? ''),
+            'date' => sanitize_text_field($shift_data['date'] ?? ''),
+            'start_time' => sanitize_text_field($shift_data['start_time'] ?? ''),
+            'end_time' => sanitize_text_field($shift_data['end_time'] ?? ''),
+            'max_volunteers' => max(0, intval($shift_data['max_volunteers'] ?? 0))
+        );
+
+        // Validation
+        if (empty($sanitized_shift['title'])) {
+            wp_send_json_error(['message' => __('Shift title is required.', 'lcd-events')], 400);
+            return;
+        }
+
+        // Update or add the shift
+        $volunteer_shifts[$shift_index] = $sanitized_shift;
+
+        // Save to database
+        $updated = update_post_meta($event_id, '_volunteer_shifts', $volunteer_shifts);
+
+        if ($updated !== false) {
+            wp_send_json_success([
+                'message' => __('Shift saved successfully.', 'lcd-events'),
+                'shift_data' => $sanitized_shift
+            ]);
+        } else {
+            // Check if the meta key exists and verify the data
+            $existing_meta = get_post_meta($event_id, '_volunteer_shifts', true);
+            
+            // Check if our shift was actually saved (sometimes update_post_meta returns false when data is unchanged)
+            if (is_array($existing_meta) && isset($existing_meta[$shift_index])) {
+                $saved_shift = $existing_meta[$shift_index];
+                if ($saved_shift['title'] === $sanitized_shift['title'] && 
+                    $saved_shift['date'] === $sanitized_shift['date'] &&
+                    $saved_shift['start_time'] === $sanitized_shift['start_time']) {
+                    // Data was actually saved successfully
+                    wp_send_json_success([
+                        'message' => __('Shift saved successfully.', 'lcd-events'),
+                        'shift_data' => $sanitized_shift
+                    ]);
+                    return;
+                }
+            }
+            
+            // Try a direct database approach as a fallback
+            delete_post_meta($event_id, '_volunteer_shifts');
+            $direct_update = add_post_meta($event_id, '_volunteer_shifts', $volunteer_shifts, true);
+            
+            if ($direct_update !== false) {
+                wp_send_json_success([
+                    'message' => __('Shift saved successfully.', 'lcd-events'),
+                    'shift_data' => $sanitized_shift
+                ]);
+            } else {
+                wp_send_json_error([
+                    'message' => __('Could not save shift. Please try again.', 'lcd-events')
+                ], 500);
+            }
         }
     }
 }

@@ -79,9 +79,14 @@ get_header();
             </div>
         </header>
 
-        <div class="content-wrapper">
+        <div class="content-wrapper full-width-content">
             <div class="entry-content">
                 <?php
+                // Display page content if available
+                if ($current_page && $current_page->post_content) {
+                    echo apply_filters('the_content', $current_page->post_content);
+                }
+                
                 // Get current date and time
                 $today = date('Y-m-d');
                 $current_datetime = current_time('mysql');
@@ -110,8 +115,16 @@ get_header();
                 
                 $events_query = new WP_Query($args);
                 
-                // Collect events with their volunteer shifts
-                $events_with_shifts = array();
+                // Get current user info for signup checking
+                $current_user_id = get_current_user_id();
+                $current_user_email = null;
+                if ($current_user_id) {
+                    $current_user = wp_get_current_user();
+                    $current_user_email = $current_user->user_email;
+                }
+                
+                // Collect all volunteer opportunities in a flat array for table display
+                $all_opportunities = array();
                 
                 if ($events_query->have_posts()) {
                     while ($events_query->have_posts()) {
@@ -120,161 +133,241 @@ get_header();
                         $shifts = lcd_get_event_volunteer_shifts($event_id);
                         
                         if (!empty($shifts)) {
-                            // Filter to only future shifts
-                            $future_shifts = array();
+                            $event_date = get_post_meta($event_id, '_event_date', true);
+                            $event_location = get_post_meta($event_id, '_event_location', true);
+                            $event_address = get_post_meta($event_id, '_event_address', true);
+                            
                             foreach ($shifts as $shift) {
                                 $shift_datetime = $shift['date'] . ' ' . ($shift['start_time'] ?: '00:00:00');
                                 if (strtotime($shift_datetime) >= strtotime($current_datetime)) {
-                                    $future_shifts[] = $shift;
+                                    // Check if current user is already signed up for this shift
+                                    $user_is_signed_up = false;
+                                    if ($current_user_id || $current_user_email) {
+                                        $user_is_signed_up = lcd_is_user_signed_up_for_shift(
+                                            $event_id, 
+                                            $shift['index'], 
+                                            $current_user_id, 
+                                            $current_user_email
+                                        );
+                                    }
+                                    
+                                    $all_opportunities[] = array(
+                                        'event_id' => $event_id,
+                                        'event_title' => get_the_title(),
+                                        'event_permalink' => get_permalink(),
+                                        'event_date' => $event_date,
+                                        'event_location' => $event_location,
+                                        'event_address' => $event_address,
+                                        'shift_index' => $shift['index'],
+                                        'shift_title' => $shift['title'],
+                                        'shift_description' => $shift['description'],
+                                        'shift_date' => $shift['date'],
+                                        'shift_start_time' => $shift['start_time'],
+                                        'shift_end_time' => $shift['end_time'],
+                                        'shift_formatted_date' => $shift['formatted_date'],
+                                        'shift_formatted_start_time' => $shift['formatted_start_time'],
+                                        'shift_formatted_end_time' => $shift['formatted_end_time'],
+                                        'max_volunteers' => $shift['max_volunteers'],
+                                        'signup_count' => $shift['signup_count'],
+                                        'spots_remaining' => $shift['spots_remaining'],
+                                        'is_full' => $shift['is_full'],
+                                        'shift_datetime' => $shift_datetime,
+                                        'user_is_signed_up' => $user_is_signed_up
+                                    );
                                 }
-                            }
-                            
-                            if (!empty($future_shifts)) {
-                                $event_date = get_post_meta($event_id, '_event_date', true);
-                                $events_with_shifts[] = array(
-                                    'event_id' => $event_id,
-                                    'event_title' => get_the_title(),
-                                    'event_permalink' => get_permalink(),
-                                    'event_date' => $event_date,
-                                    'event_location' => get_post_meta($event_id, '_event_location', true),
-                                    'shifts' => $future_shifts
-                                );
                             }
                         }
                     }
                     wp_reset_postdata();
                 }
                 
-                // Sort events by date
-                usort($events_with_shifts, function($a, $b) {
-                    return strtotime($a['event_date']) - strtotime($b['event_date']);
+                // Sort all opportunities by shift date/time
+                usort($all_opportunities, function($a, $b) {
+                    return strtotime($a['shift_datetime']) - strtotime($b['shift_datetime']);
                 });
                 ?>
 
-                <?php if (!empty($events_with_shifts)) : ?>
-                    <div class="volunteer-events-container">
-                        <?php foreach ($events_with_shifts as $event) : 
-                            $formatted_event_date = !empty($event['event_date']) ? date_i18n(get_option('date_format'), strtotime($event['event_date'])) : '';
-                            ?>
-                            <section class="event-volunteer-section">
-                                <header class="event-section-header">
-                                    <h2 class="event-section-title">
-                                        <a href="<?php echo esc_url($event['event_permalink']); ?>" class="event-title-link">
-                                            <?php echo esc_html($event['event_title']); ?>
-                                        </a>
-                                    </h2>
-                                    <div class="event-section-meta">
-                                        <?php if ($formatted_event_date) : ?>
-                                            <span class="event-section-date">
-                                                <span class="dashicons dashicons-calendar-alt"></span>
-                                                <?php echo esc_html($formatted_event_date); ?>
-                                            </span>
-                                        <?php endif; ?>
-                                        <?php if (!empty($event['event_location'])) : ?>
-                                            <span class="event-section-location">
-                                                <span class="dashicons dashicons-location"></span>
-                                                <?php echo esc_html($event['event_location']); ?>
-                                            </span>
-                                        <?php endif; ?>
-                                    </div>
-                                </header>
-
-                                <div class="volunteer-shifts-container">
-                                    <?php foreach ($event['shifts'] as $shift) : ?>
-                                        <article class="volunteer-shift-card <?php echo $shift['is_full'] ? 'shift-full' : 'shift-available'; ?>">
-                                            <div class="shift-header">
-                                                <h3 class="shift-title"><?php echo esc_html($shift['title']); ?></h3>
-                                                <div class="shift-status">
-                                                    <?php if ($shift['is_full']) : ?>
-                                                        <span class="status-badge status-full"><?php _e('Full', 'lcd-events'); ?></span>
-                                                    <?php else : ?>
-                                                        <span class="status-badge status-available"><?php _e('Available', 'lcd-events'); ?></span>
-                                                    <?php endif; ?>
-                                                </div>
-                                            </div>
-
-                                            <div class="shift-details">
-                                                <?php if (!empty($shift['formatted_date'])) : ?>
-                                                    <div class="shift-date">
-                                                        <span class="detail-label"><?php _e('Date:', 'lcd-events'); ?></span>
-                                                        <span class="detail-value"><?php echo esc_html($shift['formatted_date']); ?></span>
-                                                    </div>
-                                                <?php endif; ?>
-
-                                                <?php if (!empty($shift['formatted_start_time']) || !empty($shift['formatted_end_time'])) : ?>
-                                                    <div class="shift-time">
-                                                        <span class="detail-label"><?php _e('Time:', 'lcd-events'); ?></span>
-                                                        <span class="detail-value">
-                                                            <?php 
-                                                            if (!empty($shift['formatted_start_time']) && !empty($shift['formatted_end_time'])) {
-                                                                echo esc_html($shift['formatted_start_time']) . ' - ' . esc_html($shift['formatted_end_time']);
-                                                            } elseif (!empty($shift['formatted_start_time'])) {
-                                                                echo esc_html($shift['formatted_start_time']);
-                                                            } elseif (!empty($shift['formatted_end_time'])) {
-                                                                echo __('Until', 'lcd-events') . ' ' . esc_html($shift['formatted_end_time']);
-                                                            }
-                                                            ?>
-                                                        </span>
-                                                    </div>
-                                                <?php endif; ?>
-
-                                                <?php if (!empty($shift['description'])) : ?>
-                                                    <div class="shift-description">
-                                                        <span class="detail-label"><?php _e('Description:', 'lcd-events'); ?></span>
-                                                        <span class="detail-value"><?php echo esc_html($shift['description']); ?></span>
-                                                    </div>
-                                                <?php endif; ?>
-
-                                                <div class="shift-capacity">
-                                                    <span class="detail-label"><?php _e('Volunteers:', 'lcd-events'); ?></span>
-                                                    <span class="detail-value">
+                <?php if (!empty($all_opportunities)) : ?>
+                    <div class="volunteer-opportunities-table-container">
+                        <div class="opportunities-summary">
+                            <p class="opportunities-count">
+                                <?php 
+                                printf(
+                                    _n('%d volunteer opportunity available', '%d volunteer opportunities available', count($all_opportunities), 'lcd-events'),
+                                    count($all_opportunities)
+                                );
+                                ?>
+                            </p>
+                        </div>
+                        
+                        <div class="table-responsive">
+                            <table class="volunteer-opportunities-table">
+                                <thead>
+                                    <tr>
+                                        <th class="col-event"><?php _e('Event', 'lcd-events'); ?></th>
+                                        <th class="col-shift"><?php _e('Volunteer Role', 'lcd-events'); ?></th>
+                                        <th class="col-date"><?php _e('Date & Time', 'lcd-events'); ?></th>
+                                        <th class="col-location"><?php _e('Location', 'lcd-events'); ?></th>
+                                        <th class="col-capacity"><?php _e('Capacity', 'lcd-events'); ?></th>
+                                        <th class="col-status"><?php _e('Status', 'lcd-events'); ?></th>
+                                        <th class="col-actions"><?php _e('Actions', 'lcd-events'); ?></th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <?php foreach ($all_opportunities as $opportunity) : ?>
+                                        <?php 
+                                        $row_classes = ['opportunity-row'];
+                                        if ($opportunity['user_is_signed_up']) {
+                                            $row_classes[] = 'row-signed-up';
+                                        } elseif ($opportunity['is_full']) {
+                                            $row_classes[] = 'row-full';
+                                        } else {
+                                            $row_classes[] = 'row-available';
+                                        }
+                                        ?>
+                                        <tr class="<?php echo implode(' ', $row_classes); ?>">
+                                            <td class="col-event">
+                                                <div class="event-info">
+                                                    <h4 class="event-title">
+                                                        <a href="<?php echo esc_url($opportunity['event_permalink']); ?>" class="event-link">
+                                                            <?php echo esc_html($opportunity['event_title']); ?>
+                                                        </a>
+                                                    </h4>
+                                                    <div class="event-date">
                                                         <?php 
-                                                        if ($shift['max_volunteers'] > 0) {
-                                                            printf(
-                                                                __('%d of %d signed up', 'lcd-events'),
-                                                                $shift['signup_count'],
-                                                                $shift['max_volunteers']
-                                                            );
-                                                            if ($shift['spots_remaining'] > 0) {
-                                                                echo ' (' . sprintf(_n('%d spot remaining', '%d spots remaining', $shift['spots_remaining'], 'lcd-events'), $shift['spots_remaining']) . ')';
-                                                            }
-                                                        } else {
-                                                            printf(
-                                                                __('%d signed up (unlimited)', 'lcd-events'),
-                                                                $shift['signup_count']
-                                                            );
+                                                        if (!empty($opportunity['event_date'])) {
+                                                            echo date_i18n(get_option('date_format'), strtotime($opportunity['event_date']));
                                                         }
                                                         ?>
-                                                    </span>
+                                                    </div>
                                                 </div>
-                                            </div>
-
-                                            <div class="shift-actions">
-                                                <?php if ($shift['is_full']) : ?>
-                                                    <button class="volunteer-signup-btn btn-disabled" disabled>
-                                                        <span class="dashicons dashicons-no"></span>
-                                                        <?php _e('Shift Full', 'lcd-events'); ?>
-                                                    </button>
+                                            </td>
+                                            
+                                            <td class="col-shift">
+                                                <div class="shift-info">
+                                                    <h5 class="shift-title"><?php echo esc_html($opportunity['shift_title']); ?></h5>
+                                                    <?php if (!empty($opportunity['shift_description'])) : ?>
+                                                        <div class="shift-description" title="<?php echo esc_attr($opportunity['shift_description']); ?>">
+                                                            <?php 
+                                                            $description = $opportunity['shift_description'];
+                                                            echo esc_html(strlen($description) > 80 ? substr($description, 0, 77) . '...' : $description);
+                                                            ?>
+                                                        </div>
+                                                    <?php endif; ?>
+                                                </div>
+                                            </td>
+                                            
+                                            <td class="col-date">
+                                                <div class="datetime-info">
+                                                    <div class="shift-date">
+                                                        <?php echo esc_html($opportunity['shift_formatted_date']); ?>
+                                                    </div>
+                                                    <?php if (!empty($opportunity['shift_formatted_start_time'])) : ?>
+                                                        <div class="shift-time">
+                                                            <?php 
+                                                            if (!empty($opportunity['shift_formatted_end_time'])) {
+                                                                echo esc_html($opportunity['shift_formatted_start_time']) . ' - ' . esc_html($opportunity['shift_formatted_end_time']);
+                                                            } else {
+                                                                echo esc_html($opportunity['shift_formatted_start_time']);
+                                                            }
+                                                            ?>
+                                                        </div>
+                                                    <?php endif; ?>
+                                                </div>
+                                            </td>
+                                            
+                                            <td class="col-location">
+                                                <?php if (!empty($opportunity['event_location']) || !empty($opportunity['event_address'])) : ?>
+                                                    <?php 
+                                                    // Use address for map query if available, otherwise use location name
+                                                    $map_query = !empty($opportunity['event_address']) ? $opportunity['event_address'] : $opportunity['event_location'];
+                                                    $display_location = $opportunity['event_location'];
+                                                    $display_address = $opportunity['event_address'];
+                                                    ?>
+                                                    <a href="https://www.google.com/maps/search/?api=1&query=<?php echo urlencode($map_query); ?>" 
+                                                       target="_blank" 
+                                                       rel="noopener noreferrer" 
+                                                       class="location-link"
+                                                       title="<?php printf(__('View on map: %s', 'lcd-events'), esc_attr($map_query)); ?>">
+                                                        <span class="dashicons dashicons-location-alt"></span>
+                                                        <div class="location-info">
+                                                            <?php if (!empty($display_location)) : ?>
+                                                                <span class="location-name"><?php echo esc_html($display_location); ?></span>
+                                                            <?php endif; ?>
+                                                            <?php if (!empty($display_address) && $display_address !== $display_location) : ?>
+                                                                <span class="location-address"><?php echo esc_html($display_address); ?></span>
+                                                            <?php endif; ?>
+                                                        </div>
+                                                    </a>
                                                 <?php else : ?>
-                                                    <button class="volunteer-signup-btn btn-primary" 
-                                                            data-event-id="<?php echo esc_attr($event['event_id']); ?>"
-                                                            data-shift-index="<?php echo esc_attr($shift['index']); ?>"
-                                                            data-shift-title="<?php echo esc_attr($shift['title']); ?>">
-                                                        <span class="dashicons dashicons-plus"></span>
-                                                        <?php _e('Sign Up', 'lcd-events'); ?>
-                                                    </button>
+                                                    <span class="location-tbd"><?php _e('TBD', 'lcd-events'); ?></span>
                                                 <?php endif; ?>
-                                                
-                                                <a href="<?php echo esc_url($event['event_permalink']); ?>" class="event-details-btn btn-secondary">
-                                                    <span class="dashicons dashicons-info"></span>
-                                                    <?php _e('Event Details', 'lcd-events'); ?>
-                                                </a>
-                                            </div>
-                                        </article>
+                                            </td>
+                                            
+                                            <td class="col-capacity">
+                                                <div class="capacity-info">
+                                                    <?php if ($opportunity['max_volunteers'] > 0) : ?>
+                                                        <div class="capacity-numbers">
+                                                            <span class="current-count"><?php echo $opportunity['signup_count']; ?></span>
+                                                            <span class="capacity-separator">/</span>
+                                                            <span class="max-count"><?php echo $opportunity['max_volunteers']; ?></span>
+                                                        </div>
+                                                        <?php if ($opportunity['spots_remaining'] > 0) : ?>
+                                                            <div class="spots-remaining">
+                                                                <?php printf(_n('%d spot left', '%d spots left', $opportunity['spots_remaining'], 'lcd-events'), $opportunity['spots_remaining']); ?>
+                                                            </div>
+                                                        <?php endif; ?>
+                                                    <?php else : ?>
+                                                        <div class="capacity-unlimited">
+                                                            <span class="current-count"><?php echo $opportunity['signup_count']; ?></span>
+                                                            <span class="unlimited-label"><?php _e('(unlimited)', 'lcd-events'); ?></span>
+                                                        </div>
+                                                    <?php endif; ?>
+                                                </div>
+                                            </td>
+                                            
+                                            <td class="col-status">
+                                                <?php if ($opportunity['is_full']) : ?>
+                                                    <span class="status-badge status-full">
+                                                        <span class="dashicons dashicons-no"></span>
+                                                        <?php _e('Full', 'lcd-events'); ?>
+                                                    </span>
+                                                <?php else : ?>
+                                                    <span class="status-badge status-available">
+                                                        <span class="dashicons dashicons-yes"></span>
+                                                        <?php _e('Available', 'lcd-events'); ?>
+                                                    </span>
+                                                <?php endif; ?>
+                                            </td>
+                                            
+                                            <td class="col-actions">
+                                                <div class="action-buttons">
+                                                    <?php if ($opportunity['user_is_signed_up']) : ?>
+                                                        <button class="btn btn-success" disabled>
+                                                            <span class="dashicons dashicons-yes"></span>
+                                                            <?php _e('Signed Up', 'lcd-events'); ?>
+                                                        </button>
+                                                    <?php elseif ($opportunity['is_full']) : ?>
+                                                        <button class="btn btn-disabled" disabled>
+                                                            <span class="dashicons dashicons-no"></span>
+                                                            <?php _e('Full', 'lcd-events'); ?>
+                                                        </button>
+                                                    <?php else : ?>
+                                                        <button class="btn btn-primary volunteer-signup-btn" 
+                                                                data-event-id="<?php echo esc_attr($opportunity['event_id']); ?>"
+                                                                data-shift-index="<?php echo esc_attr($opportunity['shift_index']); ?>"
+                                                                data-shift-title="<?php echo esc_attr($opportunity['shift_title']); ?>">
+                                                            <span class="dashicons dashicons-plus"></span>
+                                                            <?php _e('Sign Up', 'lcd-events'); ?>
+                                                        </button>
+                                                    <?php endif; ?>
+                                                </div>
+                                            </td>
+                                        </tr>
                                     <?php endforeach; ?>
-                                </div>
-                            </section>
-                        <?php endforeach; ?>
+                                </tbody>
+                            </table>
+                        </div>
                     </div>
                 <?php else : ?>
                     <div class="no-opportunities-message">

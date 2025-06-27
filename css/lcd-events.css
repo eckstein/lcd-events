@@ -1469,433 +1469,25 @@
 /* --------------------------------
    Admin Volunteer Shifts Styles
 -------------------------------- */
-.lcd-volunteer-shifts-meta {
-    padding: 1rem 0;
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen-Sans, Ubuntu, Cantarell, "Helvetica Neue", sans-serif;
-}
+/* Old meta box container styles removed - using admin-volunteer-shifts.css */
 
-.volunteer-shift-item {
-    background: #fff;
-    border: 1px solid #c3c4c7;
-    border-radius: 4px;
-    margin-bottom: 1rem;
-    box-shadow: 0 1px 1px rgba(0, 0, 0, 0.04);
-    transition: all 0.2s ease;
-}
+/* Old shift summary styles removed */
 
-.volunteer-shift-item:hover {
-    border-color: #8c8f94;
-    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
-}
+/* Old shift meta styles removed */
 
-/* Shift Summary (Collapsed State) */
-.shift-summary {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding: 12px 16px;
-    border-bottom: 1px solid transparent;
-    transition: background-color 0.15s ease;
-    min-height: 60px;
-}
+/* Old shift action button styles removed */
 
-.shift-summary:hover {
-    background-color: #f6f7f7;
-}
+/* Old shift form styles removed */
 
-.shift-summary-content {
-    flex: 1;
-    min-width: 0;
-}
+/* Old signups section styles removed */
 
-.shift-title-summary {
-    margin-bottom: 4px;
-}
+/* Old duplicate signup item styles removed */
 
-.shift-title-summary strong {
-    font-size: 14px;
-    color: #1d2327;
-    font-weight: 600;
-    line-height: 1.4;
-}
 
-.shift-meta-summary {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 8px;
-    font-size: 12px;
-    color: #646970;
-    line-height: 1.4;
-}
 
-.shift-date-summary,
-.shift-time-summary,
-.shift-signups-summary {
-    display: inline-flex;
-    align-items: center;
-    padding: 2px 8px;
-    border-radius: 10px;
-    font-size: 11px;
-    font-weight: 500;
-    white-space: nowrap;
-}
+/* Old assign volunteer section styles removed */
 
-.shift-date-summary {
-    background: #dbeafe;
-    color: #1e40af;
-}
-
-.shift-time-summary {
-    background: #fce7f3;
-    color: #be185d;
-}
-
-.shift-signups-summary {
-    background: #dcfce7;
-    color: #166534;
-}
-
-.shift-placeholder {
-    font-style: italic;
-    color: #8c8f94;
-}
-
-.shift-summary-actions {
-    display: flex;
-    align-items: center;
-    gap: 4px;
-    margin-left: 12px;
-}
-
-.shift-summary-actions .button {
-    display: flex;
-    align-items: center;
-    gap: 4px;
-    padding: 4px 8px;
-    font-size: 11px;
-    border-radius: 3px;
-    text-decoration: none;
-    border: 1px solid;
-    cursor: pointer;
-    transition: all 0.15s ease;
-    height: 28px;
-    min-width: auto;
-}
-
-.toggle-shift-details {
-    background: #f6f7f7;
-    border-color: #c3c4c7;
-    color: #50575e;
-}
-
-.toggle-shift-details:hover {
-    background: #f0f0f1;
-    border-color: #8c8f94;
-    color: #1d2327;
-}
-
-.remove-shift {
-    background: #d63638;
-    border-color: #d63638;
-    color: #fff;
-}
-
-.remove-shift:hover {
-    background: #b32d2e;
-    border-color: #b32d2e;
-    color: #fff;
-}
-
-.shift-summary-actions .dashicons {
-    font-size: 12px;
-    width: 12px;
-    height: 12px;
-}
-
-/* Shift Details (Expanded State) */
-.shift-details {
-    padding: 16px;
-    border-top: 1px solid #dcdcde;
-    background: #f9f9f9;
-}
-
-.shift-form-row {
-    display: flex;
-    gap: 12px;
-    margin-bottom: 16px;
-}
-
-.shift-form-row:last-child {
-    margin-bottom: 0;
-}
-
-.shift-form-col {
-    flex: 1;
-    min-width: 0;
-}
-
-.shift-datetime-row .shift-form-col:first-child {
-    flex: 2;
-}
-
-.shift-datetime-row .shift-form-col:not(:first-child) {
-    flex: 1;
-}
-
-.shift-form-col label {
-    display: block;
-    font-weight: 600;
-    margin-bottom: 6px;
-    color: #1d2327;
-    font-size: 11px;
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-}
-
-.shift-form-col input,
-.shift-form-col textarea {
-    width: 100%;
-    padding: 6px 8px;
-    border: 1px solid #8c8f94;
-    border-radius: 4px;
-    font-size: 13px;
-    line-height: 1.4;
-    background-color: #fff;
-    color: #2c3338;
-    transition: border-color 0.15s ease, box-shadow 0.15s ease;
-    box-sizing: border-box;
-}
-
-.shift-form-col input:focus,
-.shift-form-col textarea:focus {
-    border-color: #2271b1;
-    outline: 2px solid transparent;
-    box-shadow: 0 0 0 1px #2271b1;
-}
-
-.shift-form-col textarea {
-    resize: vertical;
-    min-height: 60px;
-    font-family: inherit;
-}
-
-.shift-form-col input[type="number"] {
-    max-width: 100px;
-}
-
-.shift-form-col input[type="date"],
-.shift-form-col input[type="time"] {
-    max-width: 140px;
-}
-
-/* Volunteer Signups Section */
-.shift-signups {
-    margin-top: 20px;
-    padding-top: 16px;
-    border-top: 1px solid #c3c4c7;
-}
-
-.shift-signups h5 {
-    margin: 0 0 12px 0;
-    color: #1d2327;
-    font-size: 13px;
-    font-weight: 600;
-    display: flex;
-    align-items: center;
-    gap: 6px;
-}
-
-.shift-signups .dashicons {
-    font-size: 16px;
-    color: #2271b1;
-}
-
-.signups-count {
-    color: #646970;
-    font-weight: 400;
-    font-size: 12px;
-}
-
-.signups-list {
-    display: grid;
-    gap: 8px;
-}
-
-.signup-item-compact {
-    background: #fff;
-    border: 1px solid #c3c4c7;
-    border-radius: 4px;
-    padding: 12px;
-    transition: background-color 0.15s ease;
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-}
-
-.signup-item-compact:hover {
-    background: #f6f7f7;
-}
-
-.signup-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: flex-start;
-    gap: 12px;
-}
-
-.signup-primary {
-    flex: 1;
-    min-width: 0;
-}
-
-.signup-primary strong {
-    display: block;
-    color: #1d2327;
-    margin-bottom: 2px;
-    font-size: 13px;
-    font-weight: 600;
-}
-
-.signup-contact {
-    font-size: 12px;
-    color: #646970;
-    line-height: 1.4;
-}
-
-.signup-notes {
-    margin-top: 8px;
-    font-style: italic;
-    color: #50575e;
-    font-size: 12px;
-    background: #f0f6fc;
-    padding: 6px 8px;
-    border-radius: 3px;
-    border-left: 2px solid #2271b1;
-    line-height: 1.4;
-}
-
-.signup-date {
-    font-size: 10px;
-    color: #8c8f94;
-    background: #f6f7f7;
-    padding: 2px 6px;
-    border-radius: 2px;
-    line-height: 1.4;
-    white-space: nowrap;
-    align-self: flex-start;
-}
-
-/* Add Shift Button */
-.add-shift-container {
-    text-align: center;
-    padding: 20px 0;
-    border-top: 1px solid #c3c4c7;
-    margin-top: 16px;
-}
-
-#add-volunteer-shift {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    background: #2271b1;
-    color: #fff;
-    border: 1px solid #2271b1;
-    padding: 8px 16px;
-    border-radius: 3px;
-    cursor: pointer;
-    font-size: 13px;
-    font-weight: 500;
-    text-decoration: none;
-    transition: all 0.15s ease;
-    min-height: 32px;
-}
-
-#add-volunteer-shift:hover,
-#add-volunteer-shift:focus {
-    background: #135e96;
-    border-color: #135e96;
-    color: #fff;
-    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
-}
-
-#add-volunteer-shift .dashicons {
-    font-size: 14px;
-    width: 14px;
-    height: 14px;
-}
-
-/* Empty state */
-#volunteer-shifts-container:empty + .add-shift-container::before {
-    content: "No volunteer shifts have been added yet. Click the button below to add your first shift.";
-    display: block;
-    text-align: center;
-    color: #646970;
-    font-style: italic;
-    padding: 32px 20px;
-    background: #f6f7f7;
-    border: 2px dashed #c3c4c7;
-    border-radius: 4px;
-    margin-bottom: 20px;
-    font-size: 13px;
-    line-height: 1.5;
-}
-
-/* Assign Volunteer Section */
-.assign-volunteer-section {
-    margin-top: 20px;
-    padding-top: 16px;
-    border-top: 1px dotted #dcdcde; /* Dotted to distinguish from main signups border */
-}
-
-.assign-volunteer-title {
-    margin: 0 0 10px 0;
-    color: #1d2327;
-    font-size: 12px; /* Slightly smaller */
-    font-weight: 600;
-}
-
-.assign-volunteer-controls .select2-container {
-    margin-bottom: 5px;
-}
-
-.assign-volunteer-controls .select2-container .select2-selection--single {
-    height: 30px; /* Match WP input height */
-    border-color: #8c8f94;
-    border-radius: 3px;
-}
-
-.assign-volunteer-controls .select2-container--default .select2-selection--single .select2-selection__rendered {
-    line-height: 28px;
-    padding-left: 8px;
-    padding-right: 20px;
-}
-
-.assign-volunteer-controls .select2-container--default .select2-selection--single .select2-selection__arrow {
-    height: 28px;
-    right: 3px;
-}
-
-.assign-volunteer-controls .select2-container--default .select2-selection--clear {
-    font-size: 16px;
-    right: 0px;
-    line-height: 28px;
-    height: 28px;
-    padding: 0 5px;
-    color: #787c82;
-}
-
-.assign-volunteer-controls .select2-container--default .select2-selection--clear:hover {
-    color: #d63638;
-}
-
-/* Signup Actions - for the remove button */
-.signup-item-compact {
-    border: 1px solid #e1e1e1;
-    border-radius: 4px;
-    padding: 12px;
-    margin-bottom: 8px;
-    background: #fff;
-}
+/* Old duplicate signup item compact styles removed */
 
 .signup-status-section {
     display: flex;
@@ -2600,7 +2192,317 @@
     color: #2c5aa0;
 }
 
-/* Volunteer Shifts Container */
+/* Volunteer Opportunities Table Interface */
+.volunteer-opportunities-table-container {
+    background: white;
+    border-radius: 8px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+    overflow: hidden;
+    margin-bottom: 30px;
+}
+
+.opportunities-summary {
+    padding: 20px 24px;
+    background: #f8f9fa;
+    border-bottom: 1px solid #e1e5e9;
+}
+
+.opportunities-count {
+    margin: 0;
+    font-size: 1rem;
+    font-weight: 600;
+    color: #495057;
+}
+
+.table-responsive {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+}
+
+.volunteer-opportunities-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.9rem;
+    background: white;
+}
+
+.volunteer-opportunities-table thead {
+    background: #f8f9fa;
+    border-bottom: 2px solid #dee2e6;
+}
+
+.volunteer-opportunities-table th {
+    padding: 16px 12px;
+    text-align: left;
+    font-weight: 600;
+    color: #495057;
+    border-bottom: 1px solid #dee2e6;
+    white-space: nowrap;
+    font-size: 0.85rem;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.volunteer-opportunities-table td {
+    padding: 16px 12px;
+    border-bottom: 1px solid #f1f3f4;
+    vertical-align: top;
+}
+
+.opportunity-row {
+    transition: background-color 0.2s ease;
+}
+
+.opportunity-row:hover {
+    background-color: #f8f9fa;
+}
+
+.opportunity-row.row-full {
+    opacity: 0.7;
+}
+
+
+/* Column Widths */
+.col-event { width: 20%; min-width: 180px; }
+.col-shift { width: 25%; min-width: 200px; }
+.col-date { width: 15%; min-width: 120px; }
+.col-location { width: 12%; min-width: 100px; }
+.col-capacity { width: 10%; min-width: 80px; }
+.col-status { width: 8%; min-width: 70px; }
+.col-actions { width: 10%; min-width: 120px; }
+
+/* Event Info */
+.event-info .event-title {
+    margin: 0 0 4px 0;
+    font-size: 0.95rem;
+    font-weight: 600;
+    line-height: 1.3;
+}
+
+.event-info .event-link {
+    color: #2c5aa0;
+    text-decoration: none;
+}
+
+.event-info .event-link:hover {
+    color: #1e3a8a;
+    text-decoration: underline;
+}
+
+.event-info .event-date {
+    font-size: 0.8rem;
+    color: #6c757d;
+    font-weight: 500;
+}
+
+/* Shift Info */
+.shift-info .shift-title {
+    margin: 0 0 4px 0;
+    font-size: 0.9rem;
+    font-weight: 600;
+    color: #495057;
+    line-height: 1.3;
+}
+
+.shift-info .shift-description {
+    font-size: 0.8rem;
+    color: #6c757d;
+    line-height: 1.3;
+    cursor: help;
+}
+
+/* Date & Time Info */
+.datetime-info .shift-date {
+    font-weight: 600;
+    color: #495057;
+    font-size: 0.85rem;
+    margin-bottom: 2px;
+}
+
+.datetime-info .shift-time {
+    font-size: 0.8rem;
+    color: #6c757d;
+}
+
+/* Location */
+.location-link {
+    display: inline-flex;
+    align-items: flex-start;
+    gap: 5px;
+    color: #2c5aa0;
+    text-decoration: none;
+    transition: color 0.2s ease;
+}
+
+.location-link:hover {
+    color: #1e3a8a;
+    text-decoration: underline;
+}
+
+.location-link .dashicons {
+    font-size: 16px;
+    color: #6c757d;
+    transition: color 0.2s ease;
+    margin-top: 1px;
+    flex-shrink: 0;
+}
+
+.location-link:hover .dashicons {
+    color: #2c5aa0;
+}
+
+.location-info {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.location-name {
+    color: #495057;
+    font-weight: 500;
+    font-size: 14px;
+    line-height: 1.2;
+}
+
+.location-address {
+    color: #6c757d;
+    font-size: 12px;
+    line-height: 1.2;
+}
+
+.location-tbd {
+    color: #adb5bd;
+    font-style: italic;
+}
+
+/* Capacity Info */
+.capacity-info {
+    text-align: center;
+}
+
+.capacity-numbers {
+    font-weight: 600;
+    color: #495057;
+    margin-bottom: 2px;
+}
+
+.current-count {
+    color: #2c5aa0;
+}
+
+.capacity-separator {
+    margin: 0 2px;
+    color: #adb5bd;
+}
+
+.max-count {
+    color: #6c757d;
+}
+
+.spots-remaining,
+.unlimited-label {
+    font-size: 0.75rem;
+    color: #28a745;
+    font-weight: 500;
+}
+
+.unlimited-label {
+    color: #6c757d;
+    margin-left: 4px;
+}
+
+/* Status Badges */
+.status-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 4px 8px;
+    border-radius: 12px;
+    font-size: 0.7rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+    white-space: nowrap;
+}
+
+.status-badge.status-available {
+    background: #d4edda;
+    color: #155724;
+}
+
+.status-badge.status-full {
+    background: #f8d7da;
+    color: #721c24;
+}
+
+.status-badge .dashicons {
+    font-size: 12px;
+    width: 12px;
+    height: 12px;
+}
+
+/* Action Buttons */
+.action-buttons {
+    display: flex;
+    gap: 6px;
+    align-items: center;
+    flex-wrap: wrap;
+}
+
+.btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 6px 12px;
+    border-radius: 4px;
+    text-decoration: none;
+    font-weight: 600;
+    font-size: 0.75rem;
+    border: none;
+    cursor: pointer;
+    text-align: center;
+    white-space: nowrap;
+    transition: all 0.2s ease;
+}
+
+.btn-primary {
+    background: #2c5aa0;
+    color: white;
+}
+
+.btn-primary:hover {
+    background: #1e3a8a;
+    color: white;
+    transform: translateY(-1px);
+}
+
+.btn-secondary {
+    background: #f8f9fa;
+    color: #6c757d;
+    border: 1px solid #dee2e6;
+}
+
+.btn-secondary:hover {
+    background: #e9ecef;
+    color: #495057;
+    text-decoration: none;
+    border-color: #adb5bd;
+}
+
+.btn-disabled {
+    background: #e9ecef;
+    color: #6c757d;
+    cursor: not-allowed;
+    opacity: 0.6;
+}
+
+.btn .dashicons {
+    font-size: 12px;
+    width: 12px;
+    height: 12px;
+}
+
+/* Legacy card styles for backward compatibility */
 .volunteer-shifts-container {
     display: grid;
     gap: 12px;
@@ -2644,26 +2546,6 @@
 
 .shift-status {
     flex-shrink: 0;
-}
-
-.status-badge {
-    display: inline-block;
-    padding: 4px 8px;
-    border-radius: 12px;
-    font-size: 0.75rem;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.3px;
-}
-
-.status-badge.status-available {
-    background: #d4edda;
-    color: #155724;
-}
-
-.status-badge.status-full {
-    background: #f8d7da;
-    color: #721c24;
 }
 
 /* Shift Details */
@@ -2731,34 +2613,6 @@
     text-align: center;
 }
 
-.btn-primary {
-    background: #2c5aa0;
-    color: white;
-}
-
-.btn-primary:hover {
-    background: #1e3a8a;
-    color: white;
-}
-
-.btn-secondary {
-    background: #f8f9fa;
-    color: #666;
-    border: 1px solid #dee2e6;
-}
-
-.btn-secondary:hover {
-    background: #e9ecef;
-    color: #495057;
-    text-decoration: none;
-}
-
-.btn-disabled {
-    background: #e9ecef;
-    color: #6c757d;
-    cursor: not-allowed;
-}
-
 .volunteer-signup-btn .dashicons,
 .event-details-btn .dashicons {
     font-size: 14px;
@@ -2810,7 +2664,20 @@
     text-decoration: underline;
 }
 
-/* Mobile Responsive */
+/* Responsive Table Design */
+@media (max-width: 1024px) {
+    .volunteer-opportunities-table th,
+    .volunteer-opportunities-table td {
+        padding: 12px 8px;
+        font-size: 0.85rem;
+    }
+    
+    .col-event { min-width: 160px; }
+    .col-shift { min-width: 180px; }
+    .col-date { min-width: 100px; }
+    .col-location { min-width: 90px; }
+}
+
 @media (max-width: 768px) {
     .volunteer-opportunities .page-header {
         padding: 24px 0;
@@ -2829,7 +2696,98 @@
         width: 28px;
         height: 28px;
     }
+
+    /* Table Responsive Behavior */
+    .opportunities-summary {
+        padding: 16px 20px;
+    }
     
+    .volunteer-opportunities-table {
+        font-size: 0.8rem;
+    }
+    
+    .volunteer-opportunities-table th,
+    .volunteer-opportunities-table td {
+        padding: 10px 6px;
+    }
+    
+    .volunteer-opportunities-table th {
+        font-size: 0.75rem;
+    }
+    
+    /* Hide less important columns on mobile */
+    .col-location,
+    .col-capacity {
+        display: none;
+    }
+    
+    /* Adjust remaining column widths */
+    .col-event { width: 30%; min-width: 140px; }
+    .col-shift { width: 35%; min-width: 160px; }
+    .col-date { width: 20%; min-width: 100px; }
+    .col-status { width: 15%; min-width: 60px; }
+    
+    /* Compact event info */
+    .event-info .event-title {
+        font-size: 0.85rem;
+    }
+    
+    .event-info .event-date {
+        font-size: 0.7rem;
+    }
+    
+    /* Compact shift info */
+    .shift-info .shift-title {
+        font-size: 0.8rem;
+        margin-bottom: 2px;
+    }
+    
+    .shift-info .shift-description {
+        font-size: 0.7rem;
+    }
+    
+    /* Compact datetime */
+    .datetime-info .shift-date {
+        font-size: 0.75rem;
+        margin-bottom: 1px;
+    }
+    
+    .datetime-info .shift-time {
+        font-size: 0.7rem;
+    }
+    
+    /* Compact status badges */
+    .status-badge {
+        padding: 2px 6px;
+        font-size: 0.6rem;
+    }
+    
+    .status-badge .dashicons {
+        font-size: 10px;
+        width: 10px;
+        height: 10px;
+    }
+    
+    /* Stack action buttons vertically */
+    .action-buttons {
+        flex-direction: column;
+        gap: 4px;
+        align-items: stretch;
+    }
+    
+    .btn {
+        padding: 5px 8px;
+        font-size: 0.7rem;
+        justify-content: center;
+    }
+    
+    .btn .dashicons {
+        font-size: 10px;
+        width: 10px;
+        height: 10px;
+    }
+    
+    /* Legacy card styles for mobile */
     .volunteer-events-container {
         gap: 16px;
         padding: 0 16px;
@@ -2917,5 +2875,460 @@
     
     .no-opportunities-message p {
         font-size: 0.9rem;
+    }
+}
+
+@media (max-width: 480px) {
+    /* Extra small mobile devices - card-like table rows */
+    .volunteer-opportunities-table,
+    .volunteer-opportunities-table thead,
+    .volunteer-opportunities-table tbody,
+    .volunteer-opportunities-table th,
+    .volunteer-opportunities-table td,
+    .volunteer-opportunities-table tr {
+        display: block;
+    }
+    
+    .volunteer-opportunities-table thead tr {
+        position: absolute;
+        top: -9999px;
+        left: -9999px;
+    }
+    
+    .volunteer-opportunities-table tr {
+        background: white;
+        border: 1px solid #dee2e6;
+        border-radius: 8px;
+        margin-bottom: 12px;
+        padding: 16px;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+    }
+    
+    .volunteer-opportunities-table td {
+        border: none;
+        padding: 6px 0;
+        position: relative;
+        padding-left: 35%;
+        white-space: normal;
+    }
+    
+    .volunteer-opportunities-table td:before {
+        content: attr(data-label);
+        position: absolute;
+        left: 0;
+        width: 30%;
+        padding-right: 10px;
+        white-space: nowrap;
+        font-weight: 600;
+        color: #495057;
+        font-size: 0.75rem;
+        text-transform: uppercase;
+        letter-spacing: 0.3px;
+    }
+    
+    /* Add data-label attributes via CSS content for mobile */
+    .col-event:before { content: "Event"; }
+    .col-shift:before { content: "Role"; }
+    .col-date:before { content: "Date"; }
+    .col-location:before { content: "Location"; }
+    .col-capacity:before { content: "Capacity"; }
+    .col-status:before { content: "Status"; }
+    .col-actions:before { content: "Actions"; }
+    
+    /* Show all columns on very small screens since they stack */
+    .col-location,
+    .col-capacity {
+        display: block;
+    }
+    
+    .action-buttons {
+        margin-top: 8px;
+    }
+}
+
+/* --------------------------------
+   Volunteer Signup Modal Styles
+-------------------------------- */
+.volunteer-modal-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background-color: rgba(0, 0, 0, 0.6);
+    z-index: 10000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    backdrop-filter: blur(3px);
+}
+
+.volunteer-modal-content {
+    background: #fff;
+    border-radius: 12px;
+    box-shadow: 0 20px 40px rgba(0, 0, 0, 0.2);
+    width: 90%;
+    max-width: 600px;
+    max-height: 90vh;
+    overflow-y: auto;
+    position: relative;
+    animation: modalSlideIn 0.3s ease-out;
+}
+
+@keyframes modalSlideIn {
+    from {
+        transform: scale(0.95) translateY(-20px);
+        opacity: 0;
+    }
+    to {
+        transform: scale(1) translateY(0);
+        opacity: 1;
+    }
+}
+
+.volunteer-modal-close {
+    position: absolute;
+    top: 15px;
+    right: 20px;
+    background: none;
+    border: none;
+    font-size: 24px;
+    cursor: pointer;
+    color: #666;
+    width: 30px;
+    height: 30px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 50%;
+    transition: all 0.2s ease;
+    z-index: 1;
+}
+
+.volunteer-modal-close:hover {
+    background-color: rgba(255, 255, 255, 0.2);
+    color: #fff;
+}
+
+.volunteer-modal-header {
+    padding: 30px 30px 20px;
+    border-bottom: 1px solid #eee;
+    background: linear-gradient(135deg, var(--color-primary, #0073aa) 0%, var(--color-secondary, #005177) 100%);
+    color: #fff;
+    border-radius: 12px 12px 0 0;
+}
+
+.volunteer-modal-header h3 {
+    margin: 0 0 10px;
+    font-size: 1.5rem;
+    font-weight: 600;
+}
+
+.event-info-summary {
+    font-size: 0.9rem;
+    opacity: 0.9;
+}
+
+.event-info-summary .event-detail,
+.event-info-summary .shift-detail {
+    margin-bottom: 5px;
+}
+
+.event-info-summary strong {
+    font-weight: 600;
+}
+
+.modal-step {
+    padding: 30px;
+}
+
+/* Signup Options */
+.signup-options {
+    display: flex;
+    flex-direction: column;
+    gap: 15px;
+    margin-top: 20px;
+}
+
+.signup-option {
+    display: flex;
+    align-items: center;
+    padding: 20px;
+    border: 2px solid #e1e1e1;
+    border-radius: 8px;
+    background: #fff;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    text-align: left;
+    width: 100%;
+}
+
+.signup-option:hover {
+    border-color: var(--color-primary, #0073aa);
+    background-color: #f8f9fa;
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+}
+
+.signup-option .dashicons {
+    font-size: 24px;
+    width: 24px;
+    height: 24px;
+    margin-right: 15px;
+    color: var(--color-primary, #0073aa);
+    flex-shrink: 0;
+}
+
+.option-content {
+    flex: 1;
+}
+
+.option-content strong {
+    display: block;
+    font-size: 1.1rem;
+    margin-bottom: 4px;
+    color: #333;
+}
+
+.option-content small {
+    color: #666;
+    font-size: 0.9rem;
+}
+
+/* Form Styles */
+.form-group {
+    margin-bottom: 20px;
+}
+
+.form-group label {
+    display: block;
+    font-weight: 600;
+    margin-bottom: 8px;
+    color: #333;
+}
+
+.form-group input,
+.form-group textarea {
+    width: 100%;
+    padding: 12px;
+    border: 2px solid #ddd;
+    border-radius: 6px;
+    font-size: 16px;
+    transition: border-color 0.2s ease;
+    box-sizing: border-box;
+}
+
+.form-group input:focus,
+.form-group textarea:focus {
+    outline: none;
+    border-color: var(--color-primary, #0073aa);
+    box-shadow: 0 0 0 3px rgba(0, 115, 170, 0.1);
+}
+
+.form-group textarea {
+    resize: vertical;
+    min-height: 80px;
+}
+
+/* Checkbox Group */
+.checkbox-group {
+    margin-bottom: 25px;
+}
+
+.checkbox-label {
+    display: flex;
+    align-items: flex-start;
+    cursor: pointer;
+    font-weight: normal;
+    line-height: 1.4;
+}
+
+.checkbox-label input[type="checkbox"] {
+    width: auto;
+    margin: 0 12px 0 0;
+    transform: scale(1.2);
+}
+
+.form-help {
+    display: block;
+    margin-top: 8px;
+    font-size: 0.9rem;
+    color: #666;
+    line-height: 1.4;
+}
+
+/* Form Actions */
+.form-actions {
+    display: flex;
+    gap: 12px;
+    margin-top: 30px;
+    justify-content: flex-end;
+}
+
+.form-actions .btn {
+    min-width: 120px;
+}
+
+/* Loading State */
+.loading-content {
+    text-align: center;
+    padding: 40px 20px;
+}
+
+.spinner {
+    width: 40px;
+    height: 40px;
+    border: 3px solid #f3f3f3;
+    border-top: 3px solid var(--color-primary, #0073aa);
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+    margin: 0 auto 20px;
+}
+
+@keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+}
+
+.loading-content p {
+    color: #666;
+    font-size: 1.1rem;
+    margin: 0;
+}
+
+/* Success/Error States */
+.success-content,
+.error-content {
+    text-align: center;
+    padding: 40px 20px;
+}
+
+.success-icon,
+.error-icon {
+    margin-bottom: 20px;
+}
+
+.success-icon .dashicons {
+    font-size: 48px;
+    width: 48px;
+    height: 48px;
+    color: #46b450;
+    background: #f0f8ff;
+    border-radius: 50%;
+    padding: 20px;
+    line-height: 1;
+}
+
+.error-icon .dashicons {
+    font-size: 48px;
+    width: 48px;
+    height: 48px;
+    color: #dc3545;
+    background: #fff5f5;
+    border-radius: 50%;
+    padding: 20px;
+    line-height: 1;
+}
+
+.success-content h4,
+.error-content h4 {
+    margin: 0 0 15px;
+    font-size: 1.3rem;
+}
+
+.success-content h4 {
+    color: #46b450;
+}
+
+.error-content h4 {
+    color: #dc3545;
+}
+
+/* Button Variations */
+.btn.btn-success {
+    background-color: #46b450;
+    border-color: #46b450;
+    color: #fff;
+}
+
+.btn.btn-success:hover {
+    background-color: #3e9948;
+    border-color: #3e9948;
+}
+
+.back-to-options {
+    margin-right: auto;
+}
+
+/* Modal Body Scrolling */
+body.modal-open {
+    overflow: hidden;
+}
+
+/* Responsive Modal */
+@media (max-width: 768px) {
+    .volunteer-modal-content {
+        width: 95%;
+        max-height: 95vh;
+        margin: 20px 10px;
+    }
+    
+    .volunteer-modal-header,
+    .modal-step {
+        padding: 20px;
+    }
+    
+    .volunteer-modal-header h3 {
+        font-size: 1.3rem;
+    }
+    
+    .signup-options {
+        gap: 12px;
+    }
+    
+    .signup-option {
+        padding: 15px;
+        flex-direction: column;
+        align-items: flex-start;
+        text-align: center;
+    }
+    
+    .signup-option .dashicons {
+        margin: 0 0 10px 0;
+        align-self: center;
+    }
+    
+    .form-actions {
+        flex-direction: column;
+        gap: 10px;
+    }
+    
+    .form-actions .btn {
+        width: 100%;
+        min-width: auto;
+    }
+    
+    .back-to-options {
+        margin-right: 0;
+        order: 1;
+    }
+}
+
+@media (max-width: 480px) {
+    .volunteer-modal-content {
+        width: 100%;
+        height: 100vh;
+        max-height: 100vh;
+        border-radius: 0;
+        margin: 0;
+    }
+    
+    .volunteer-modal-header {
+        border-radius: 0;
+    }
+    
+    .form-group input,
+    .form-group textarea {
+        font-size: 16px; /* Prevent zoom on iOS */
     }
 }

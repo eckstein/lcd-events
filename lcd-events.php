@@ -22,6 +22,10 @@ define('LCD_EVENTS_PLUGIN_URL', plugin_dir_url(__FILE__));
 require_once LCD_EVENTS_PLUGIN_DIR . 'includes/class-lcd-volunteer-shifts.php';
 LCD_Volunteer_Shifts::get_instance();
 
+// Load admin functionality
+require_once LCD_EVENTS_PLUGIN_DIR . 'admin/class-admin-loader.php';
+LCD_Events_Admin_Loader::get_instance();
+
 /**
  * Flush rewrite rules on plugin activation
  */
@@ -701,7 +705,7 @@ function lcd_events_admin_scripts($hook) {
         wp_enqueue_script(
             'lcd-events-admin',
             LCD_EVENTS_PLUGIN_URL . 'js/admin-events.js',
-            array('jquery', 'select2'),
+            array('jquery', 'select2', 'lcd-modal-system-admin'),
             LCD_EVENTS_VERSION,
             true
         );
@@ -832,16 +836,42 @@ function lcd_events_frontend_scripts() {
                 true
             );
             
-            // Localize script with AJAX data for future sign-up functionality
+            // Localize script with AJAX data for volunteer signup functionality
             wp_localize_script('lcd-volunteer-opportunities', 'lcdVolunteerData', array(
                 'ajaxurl' => admin_url('admin-ajax.php'),
-                'nonce' => wp_create_nonce('lcd_volunteer_signup'),
+                'nonce' => wp_create_nonce('lcd_volunteer_opportunities'),
+                'loginUrl' => wp_login_url(get_permalink()),
+                'lostPasswordUrl' => wp_lostpassword_url(),
+                'isLoggedIn' => is_user_logged_in(),
                 'text' => array(
                     'signing_up' => __('Signing up...', 'lcd-events'),
                     'sign_up' => __('Sign Up', 'lcd-events'),
                     'error_signup' => __('Error signing up. Please try again.', 'lcd-events'),
                     'success_signup' => __('Successfully signed up!', 'lcd-events'),
                     'confirm_signup' => __('Are you sure you want to sign up for this volunteer shift?', 'lcd-events'),
+                    'processing' => __('Processing...', 'lcd-events'),
+                    'guest_signup' => __('Sign up as guest', 'lcd-events'),
+                    'login_signup' => __('Login and sign up', 'lcd-events'),
+                    'create_account_signup' => __('Create account and sign up', 'lcd-events'),
+                    'name_required' => __('Name is required', 'lcd-events'),
+                    'email_required' => __('Email is required', 'lcd-events'),
+                    'invalid_email' => __('Please enter a valid email address', 'lcd-events'),
+                    'phone_optional' => __('Phone number (optional)', 'lcd-events'),
+                    'additional_notes' => __('Additional notes (optional)', 'lcd-events'),
+                    'back' => __('Back', 'lcd-events'),
+                    'submit' => __('Submit', 'lcd-events'),
+                    'cancel' => __('Cancel', 'lcd-events'),
+                    'close' => __('Close', 'lcd-events'),
+                    'volunteer_signup_title' => __('Volunteer Sign-up', 'lcd-events'),
+                    'how_signup' => __('How would you like to sign up?', 'lcd-events'),
+                    'guest_signup_desc' => __('Quick signup without creating an account', 'lcd-events'),
+                    'login_signup_desc' => __('Use your existing account', 'lcd-events'),
+                    'create_account_desc' => __('Create an account for future signups', 'lcd-events'),
+                    'first_name_required' => __('First Name *', 'lcd-events'),
+                    'last_name_required' => __('Last Name *', 'lcd-events'),
+                    'signup_success' => __('Signup Successful!', 'lcd-events'),
+                    'signup_error' => __('Signup Error', 'lcd-events'),
+                    'unexpected_error' => __('An unexpected error occurred. Please try again.', 'lcd-events'),
                 )
             ));
         }
@@ -889,6 +919,20 @@ function lcd_get_event_volunteer_shifts($event_id) {
  */
 function lcd_get_volunteer_signups($event_id) {
     return LCD_Volunteer_Shifts::get_instance()->get_volunteer_signups($event_id);
+}
+
+/**
+ * Get volunteer signups for a specific user
+ */
+function lcd_get_user_volunteer_signups($user_id = null, $email = null) {
+    return LCD_Volunteer_Shifts::get_instance()->get_user_volunteer_signups($user_id, $email);
+}
+
+/**
+ * Check if a user is signed up for a specific shift
+ */
+function lcd_is_user_signed_up_for_shift($event_id, $shift_index, $user_id = null, $email = null) {
+    return LCD_Volunteer_Shifts::get_instance()->is_user_signed_up_for_shift($event_id, $shift_index, $user_id, $email);
 }
 
 
