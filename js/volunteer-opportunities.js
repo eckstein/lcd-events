@@ -7,6 +7,39 @@
 (function($) {
     'use strict';
 
+    // Event Filter functionality
+    var eventFilter = {
+        init: function() {
+            this.bindEvents();
+        },
+
+        bindEvents: function() {
+            // Handle event filter dropdown change
+            $(document).on('change', '.event-filter-select', this.handleFilterChange);
+        },
+
+        handleFilterChange: function() {
+            var $select = $(this);
+            var selectedEventId = $select.val();
+            
+            // Add a subtle loading state
+            $select.prop('disabled', true);
+            $select.after('<span class="filter-loading"> <span class="spinner" style="display: inline-block; width: 16px; height: 16px; margin-left: 8px;"></span></span>');
+            
+            // Build the new URL with query parameters
+            var currentUrl = new URL(window.location.href);
+            
+            if (selectedEventId && selectedEventId !== '') {
+                currentUrl.searchParams.set('event_filter', selectedEventId);
+            } else {
+                currentUrl.searchParams.delete('event_filter');
+            }
+            
+            // Navigate to the new URL
+            window.location.href = currentUrl.toString();
+        }
+    };
+
     var volunteerSignup = {
         currentModal: null,
         currentShiftData: null,
@@ -635,6 +668,7 @@
     };
 
     $(document).ready(function() {
+        eventFilter.init();
         volunteerSignup.init();
         
         // Add smooth scrolling for internal links

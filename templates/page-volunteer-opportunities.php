@@ -91,7 +91,17 @@ get_header();
                 $today = date('Y-m-d');
                 $current_datetime = current_time('mysql');
                 
-                // Query for upcoming events that have volunteer shifts
+                // Get the selected event filter from URL parameter
+                $selected_event_id = isset($_GET['event_filter']) ? intval($_GET['event_filter']) : 0;
+                // Get current user info for signup checking
+                $current_user_id = get_current_user_id();
+                $current_user_email = null;
+                if ($current_user_id) {
+                    $current_user = wp_get_current_user();
+                    $current_user_email = $current_user->user_email;
+                }
+                
+                // Single query for events with volunteer shifts
                 $args = array(
                     'post_type' => 'event',
                     'posts_per_page' => -1,
@@ -113,17 +123,15 @@ get_header();
                     )
                 );
                 
-                $events_query = new WP_Query($args);
-                
-                // Get current user info for signup checking
-                $current_user_id = get_current_user_id();
-                $current_user_email = null;
-                if ($current_user_id) {
-                    $current_user = wp_get_current_user();
-                    $current_user_email = $current_user->user_email;
+                // If a specific event is selected, add it to the query
+                if ($selected_event_id > 0) {
+                    $args['p'] = $selected_event_id;
                 }
                 
-                // Collect all volunteer opportunities in a flat array for table display
+                $events_query = new WP_Query($args);
+                
+                // Process events for both filter dropdown and opportunities
+                $available_events = array();
                 $all_opportunities = array();
                 
                 if ($events_query->have_posts()) {
@@ -137,9 +145,14 @@ get_header();
                             $event_location = get_post_meta($event_id, '_event_location', true);
                             $event_address = get_post_meta($event_id, '_event_address', true);
                             
+                            // Track if this event has upcoming shifts for filter dropdown
+                            $has_upcoming_shifts = false;
+                            
                             foreach ($shifts as $shift) {
                                 $shift_datetime = $shift['date'] . ' ' . ($shift['start_time'] ?: '00:00:00');
                                 if (strtotime($shift_datetime) >= strtotime($current_datetime)) {
+                                    $has_upcoming_shifts = true;
+                                    
                                     // Check if current user is already signed up for this shift
                                     $user_is_signed_up = false;
                                     if ($current_user_id || $current_user_email) {
@@ -176,9 +189,72 @@ get_header();
                                     );
                                 }
                             }
+                            
+                            // Add to available events for filter dropdown (only if no specific event selected)
+                            if ($selected_event_id == 0 && $has_upcoming_shifts) {
+                                $available_events[] = array(
+                                    'id' => $event_id,
+                                    'title' => get_the_title(),
+                                    'date' => $event_date
+                                );
+                            }
                         }
                     }
                     wp_reset_postdata();
+                }
+                
+                // If filtering by specific event, we need to get all events for the dropdown
+                if ($selected_event_id > 0) {
+                    $all_events_args = array(
+                        'post_type' => 'event',
+                        'posts_per_page' => -1,
+                        'meta_key' => '_event_date',
+                        'orderby' => 'meta_value',
+                        'order' => 'ASC',
+                        'meta_query' => array(
+                            'relation' => 'AND',
+                            array(
+                                'key' => '_event_date',
+                                'value' => $today,
+                                'compare' => '>=',
+                                'type' => 'DATE'
+                            ),
+                            array(
+                                'key' => '_volunteer_shifts',
+                                'compare' => 'EXISTS'
+                            )
+                        )
+                    );
+                    
+                    $all_events_query = new WP_Query($all_events_args);
+                    if ($all_events_query->have_posts()) {
+                        while ($all_events_query->have_posts()) {
+                            $all_events_query->the_post();
+                            $event_id = get_the_ID();
+                            $shifts = lcd_get_event_volunteer_shifts($event_id);
+                            
+                            if (!empty($shifts)) {
+                                // Check if this event has any upcoming shifts
+                                $has_upcoming_shifts = false;
+                                foreach ($shifts as $shift) {
+                                    $shift_datetime = $shift['date'] . ' ' . ($shift['start_time'] ?: '00:00:00');
+                                    if (strtotime($shift_datetime) >= strtotime($current_datetime)) {
+                                        $has_upcoming_shifts = true;
+                                        break;
+                                    }
+                                }
+                                
+                                if ($has_upcoming_shifts) {
+                                    $available_events[] = array(
+                                        'id' => $event_id,
+                                        'title' => get_the_title(),
+                                        'date' => get_post_meta($event_id, '_event_date', true)
+                                    );
+                                }
+                            }
+                        }
+                        wp_reset_postdata();
+                    }
                 }
                 
                 // Sort all opportunities by shift date/time
@@ -187,19 +263,67 @@ get_header();
                 });
                 ?>
 
-                <?php if (!empty($all_opportunities)) : ?>
+                <?php if (!empty($available_events)) : ?>
                     <div class="volunteer-opportunities-table-container">
-                        <div class="opportunities-summary">
-                            <p class="opportunities-count">
-                                <?php 
-                                printf(
-                                    _n('%d volunteer opportunity available', '%d volunteer opportunities available', count($all_opportunities), 'lcd-events'),
-                                    count($all_opportunities)
-                                );
-                                ?>
-                            </p>
+                        <div class="opportunities-filter">
+                            <form method="GET" class="event-filter-form">
+                                <div class="filter-group">
+                                    <label for="event-filter" class="filter-label">
+                                        <span class="dashicons dashicons-filter"></span>
+                                        <?php _e('Filter by Event:', 'lcd-events'); ?>
+                                    </label>
+                                    <select id="event-filter" name="event_filter" class="event-filter-select">
+                                        <option value=""><?php _e('All Events', 'lcd-events'); ?></option>
+                                        <?php foreach ($available_events as $event) : ?>
+                                            <option value="<?php echo esc_attr($event['id']); ?>" <?php selected($selected_event_id, $event['id']); ?>>
+                                                <?php 
+                                                echo esc_html($event['title']);
+                                                if (!empty($event['date'])) {
+                                                    echo ' - ' . date_i18n(get_option('date_format'), strtotime($event['date']));
+                                                }
+                                                ?>
+                                            </option>
+                                        <?php endforeach; ?>
+                                    </select>
+                                </div>
+                                
+                                <?php if (!empty($all_opportunities)) : ?>
+                                    <div class="opportunities-count">
+                                        <?php 
+                                        if ($selected_event_id > 0) {
+                                            // Get the selected event title for display
+                                            $selected_event_title = '';
+                                            foreach ($available_events as $event) {
+                                                if ($event['id'] == $selected_event_id) {
+                                                    $selected_event_title = $event['title'];
+                                                    break;
+                                                }
+                                            }
+                                            if ($selected_event_title) {
+                                                printf(
+                                                    _n('%d volunteer opportunity for <strong>%s</strong>', '%d volunteer opportunities for <strong>%s</strong>', count($all_opportunities), 'lcd-events'),
+                                                    count($all_opportunities),
+                                                    esc_html($selected_event_title)
+                                                );
+                                            } else {
+                                                printf(
+                                                    _n('%d volunteer opportunity found', '%d volunteer opportunities found', count($all_opportunities), 'lcd-events'),
+                                                    count($all_opportunities)
+                                                );
+                                            }
+                                        } else {
+                                            printf(
+                                                _n('%d volunteer opportunity available', '%d volunteer opportunities available', count($all_opportunities), 'lcd-events'),
+                                                count($all_opportunities)
+                                            );
+                                        }
+                                        ?>
+                                    </div>
+                                <?php endif; ?>
+                            </form>
                         </div>
                         
+                        <?php if (!empty($all_opportunities)) : ?>
                         <div class="table-responsive">
                             <table class="volunteer-opportunities-table">
                                 <thead>
@@ -368,16 +492,48 @@ get_header();
                                 </tbody>
                             </table>
                         </div>
+                        <?php endif; ?>
                     </div>
                 <?php else : ?>
                     <div class="no-opportunities-message">
                         <div class="message-icon">
                             <span class="dashicons dashicons-calendar-alt"></span>
                         </div>
-                        <h3><?php _e('No Volunteer Opportunities Available', 'lcd-events'); ?></h3>
-                        <p><?php _e('There are currently no upcoming volunteer opportunities. Please check back later or', 'lcd-events'); ?> 
-                           <a href="<?php echo get_post_type_archive_link('event'); ?>"><?php _e('view our upcoming events', 'lcd-events'); ?></a>.
-                        </p>
+                        <?php if ($selected_event_id > 0) : ?>
+                            <?php 
+                            // Get the selected event title for a more specific message
+                            $selected_event_title = '';
+                            foreach ($available_events as $event) {
+                                if ($event['id'] == $selected_event_id) {
+                                    $selected_event_title = $event['title'];
+                                    break;
+                                }
+                            }
+                            if (!$selected_event_title && $selected_event_id > 0) {
+                                $selected_event_post = get_post($selected_event_id);
+                                if ($selected_event_post) {
+                                    $selected_event_title = $selected_event_post->post_title;
+                                }
+                            }
+                            ?>
+                            <h3><?php _e('No Volunteer Opportunities for This Event', 'lcd-events'); ?></h3>
+                            <p>
+                                <?php if ($selected_event_title) : ?>
+                                    <?php printf(__('"%s" currently has no upcoming volunteer opportunities.', 'lcd-events'), esc_html($selected_event_title)); ?>
+                                <?php else : ?>
+                                    <?php _e('This event currently has no upcoming volunteer opportunities.', 'lcd-events'); ?>
+                                <?php endif; ?>
+                                <br><br>
+                                <a href="<?php echo esc_url(remove_query_arg('event_filter')); ?>"><?php _e('View all volunteer opportunities', 'lcd-events'); ?></a>
+                                <?php _e(' or ', 'lcd-events'); ?>
+                                <a href="<?php echo get_post_type_archive_link('event'); ?>"><?php _e('view our upcoming events', 'lcd-events'); ?></a>.
+                            </p>
+                        <?php else : ?>
+                            <h3><?php _e('No Volunteer Opportunities Available', 'lcd-events'); ?></h3>
+                            <p><?php _e('There are currently no upcoming volunteer opportunities. Please check back later or', 'lcd-events'); ?> 
+                               <a href="<?php echo get_post_type_archive_link('event'); ?>"><?php _e('view our upcoming events', 'lcd-events'); ?></a>.
+                            </p>
+                        <?php endif; ?>
                     </div>
                 <?php endif; ?>
             </div>

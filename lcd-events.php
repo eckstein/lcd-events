@@ -629,7 +629,31 @@ function lcd_event_template_include($template) {
     // Check for volunteer opportunities page (slug-based only, template selection handled by page_template filter)
     if (is_page()) {
         global $post;
-        if ($post && $post->post_name === 'volunteer-opportunities') {
+        
+        // Check both slug and template assignment
+        $is_volunteer_opportunities = false;
+        
+        if ($post) {
+            // Check by slug
+            if ($post->post_name === 'volunteer-opportunities') {
+                $is_volunteer_opportunities = true;
+            }
+            
+            // Check by template assignment
+            if (get_page_template_slug($post->ID) === 'page-volunteer-opportunities.php') {
+                $is_volunteer_opportunities = true;
+            }
+        }
+        
+        // Also check if we can find the page by path (handles query parameters better)
+        if (!$is_volunteer_opportunities) {
+            $volunteer_page = get_page_by_path('volunteer-opportunities');
+            if ($volunteer_page && is_page($volunteer_page->ID)) {
+                $is_volunteer_opportunities = true;
+            }
+        }
+        
+        if ($is_volunteer_opportunities) {
             $custom_template = LCD_EVENTS_PLUGIN_DIR . 'templates/page-volunteer-opportunities.php';
             if (file_exists($custom_template)) {
                 return $custom_template;
@@ -826,8 +850,31 @@ function lcd_events_frontend_scripts() {
     // Load on volunteer opportunities page
     if (is_page()) {
         global $post;
-        if ($post && ($post->post_name === 'volunteer-opportunities' || 
-                     get_page_template_slug($post->ID) === 'page-volunteer-opportunities.php')) {
+        
+        // Check if this is the volunteer opportunities page (using same logic as template loading)
+        $is_volunteer_opportunities = false;
+        
+        if ($post) {
+            // Check by slug
+            if ($post->post_name === 'volunteer-opportunities') {
+                $is_volunteer_opportunities = true;
+            }
+            
+            // Check by template assignment
+            if (get_page_template_slug($post->ID) === 'page-volunteer-opportunities.php') {
+                $is_volunteer_opportunities = true;
+            }
+        }
+        
+        // Also check if we can find the page by path (handles query parameters better)
+        if (!$is_volunteer_opportunities) {
+            $volunteer_page = get_page_by_path('volunteer-opportunities');
+            if ($volunteer_page && is_page($volunteer_page->ID)) {
+                $is_volunteer_opportunities = true;
+            }
+        }
+        
+        if ($is_volunteer_opportunities) {
             wp_enqueue_script(
                 'lcd-volunteer-opportunities',
                 LCD_EVENTS_PLUGIN_URL . 'js/volunteer-opportunities.js',
