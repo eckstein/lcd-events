@@ -2680,7 +2680,7 @@
 
 @media (max-width: 768px) {
     .volunteer-opportunities .page-header {
-        padding: 24px 0;
+        padding: 24px 16px;
     }
     
     .volunteer-opportunities .page-title {
@@ -2697,109 +2697,204 @@
         height: 28px;
     }
 
-    /* Table Responsive Behavior */
+    /* Switch to card layout for tablets and mobile */
+    .volunteer-opportunities-table-container {
+        margin: 0 -8px;
+    }
+
     .opportunities-summary {
-        padding: 16px 20px;
+        padding: 16px 24px;
+        margin: 0 8px;
+        border-radius: 12px 12px 0 0;
     }
-    
-    .volunteer-opportunities-table {
-        font-size: 0.8rem;
+
+    .table-responsive {
+        overflow: visible;
+        margin: 0 8px;
+        border-radius: 0 0 12px 12px;
     }
-    
+
+    .volunteer-opportunities-table,
+    .volunteer-opportunities-table thead,
+    .volunteer-opportunities-table tbody,
     .volunteer-opportunities-table th,
+    .volunteer-opportunities-table td,
+    .volunteer-opportunities-table tr {
+        display: block;
+    }
+
+    .volunteer-opportunities-table thead tr {
+        position: absolute;
+        top: -9999px;
+        left: -9999px;
+    }
+
+    .volunteer-opportunities-table {
+        border: none;
+        background: transparent;
+    }
+
+    .volunteer-opportunities-table tr {
+        background: white;
+        border: 1px solid #e1e5e9;
+        border-radius: 12px;
+        margin-bottom: 16px;
+        padding: 20px;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+        transition: all 0.2s ease;
+        position: relative;
+    }
+
+    .volunteer-opportunities-table tr:hover {
+        box-shadow: 0 4px 16px rgba(0,0,0,0.12);
+        transform: translateY(-2px);
+    }
+
+    .volunteer-opportunities-table tr:last-child {
+        margin-bottom: 0;
+    }
+
     .volunteer-opportunities-table td {
-        padding: 10px 6px;
+        border: none;
+        padding: 8px 0;
+        position: relative;
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        min-height: auto;
     }
-    
-    .volunteer-opportunities-table th {
+
+    .volunteer-opportunities-table td:before {
+        content: attr(data-label);
+        font-weight: 600;
+        color: #6c757d;
         font-size: 0.75rem;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        width: 80px;
+        flex-shrink: 0;
+        margin-right: 16px;
+        line-height: 1.4;
     }
-    
-    /* Hide less important columns on mobile */
-    .col-location,
-    .col-capacity {
-        display: none;
+
+    .volunteer-opportunities-table td > * {
+        flex: 1;
+        text-align: left;
+        margin: 0;
     }
-    
-    /* Adjust remaining column widths */
-    .col-event { width: 30%; min-width: 140px; }
-    .col-shift { width: 35%; min-width: 160px; }
-    .col-date { width: 20%; min-width: 100px; }
-    .col-status { width: 15%; min-width: 60px; }
-    
-    /* Compact event info */
-    .event-info .event-title {
-        font-size: 0.85rem;
-    }
-    
-    .event-info .event-date {
-        font-size: 0.7rem;
-    }
-    
-    /* Compact shift info */
-    .shift-info .shift-title {
-        font-size: 0.8rem;
-        margin-bottom: 2px;
-    }
-    
-    .shift-info .shift-description {
-        font-size: 0.7rem;
-    }
-    
-    /* Compact datetime */
-    .datetime-info .shift-date {
-        font-size: 0.75rem;
-        margin-bottom: 1px;
-    }
-    
-    .datetime-info .shift-time {
-        font-size: 0.7rem;
-    }
-    
-    /* Compact status badges */
-    .status-badge {
-        padding: 2px 6px;
-        font-size: 0.6rem;
-    }
-    
-    .status-badge .dashicons {
-        font-size: 10px;
-        width: 10px;
-        height: 10px;
-    }
-    
-    /* Stack action buttons vertically */
-    .action-buttons {
+
+    /* Enhanced card content styling */
+    .col-event .event-info {
+        display: flex;
         flex-direction: column;
         gap: 4px;
-        align-items: stretch;
     }
-    
-    .btn {
-        padding: 5px 8px;
-        font-size: 0.7rem;
-        justify-content: center;
+
+    .col-event .event-info .event-title {
+        font-size: 1rem;
+        margin: 0;
+        line-height: 1.3;
     }
-    
-    .btn .dashicons {
-        font-size: 10px;
-        width: 10px;
-        height: 10px;
+
+    .col-event .event-info .event-date {
+        font-size: 0.85rem;
+        color: #6c757d;
     }
-    
-    /* Legacy card styles for mobile */
+
+    .col-shift .shift-info .shift-title {
+        font-size: 0.95rem;
+        margin: 0 0 4px 0;
+        line-height: 1.3;
+    }
+
+    .col-shift .shift-info .shift-description {
+        font-size: 0.8rem;
+        color: #6c757d;
+        line-height: 1.3;
+    }
+
+    .col-date .datetime-info {
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+    }
+
+    .col-date .datetime-info .shift-date {
+        font-size: 0.9rem;
+        font-weight: 600;
+        margin: 0;
+    }
+
+    .col-date .datetime-info .shift-time {
+        font-size: 0.8rem;
+        color: #6c757d;
+        margin: 0;
+    }
+
+    .col-location .location-info {
+        gap: 2px;
+    }
+
+    .col-location .location-name {
+        font-size: 0.9rem;
+        font-weight: 500;
+    }
+
+    .col-location .location-address {
+        font-size: 0.8rem;
+    }
+
+    .col-capacity .capacity-info {
+        text-align: left;
+    }
+
+    .col-capacity .capacity-numbers {
+        font-size: 0.9rem;
+        margin: 0;
+    }
+
+    .col-status .status-badge {
+        font-size: 0.8rem;
+        padding: 4px 8px;
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+    }
+
+    .col-actions .action-buttons {
+        justify-content: flex-end;
+        gap: 8px;
+    }
+
+    .col-actions .btn {
+        padding: 8px 12px;
+        font-size: 0.8rem;
+        min-width: auto;
+    }
+
+    /* Add data-label attributes for mobile view */
+    .col-event:before { content: "Event"; }
+    .col-shift:before { content: "Role"; }
+    .col-date:before { content: "Date"; }
+    .col-location:before { content: "Location"; }
+    .col-capacity:before { content: "Spots"; }
+    .col-status:before { content: "Status"; }
+    .col-actions:before { content: ""; }
+
+    /* Legacy volunteer shifts styling for other parts */
     .volunteer-events-container {
         gap: 16px;
         padding: 0 16px;
     }
     
     .event-section-header {
-        padding: 12px 16px;
+        padding: 16px 20px;
+        border-radius: 12px 12px 0 0;
     }
     
     .event-section-title {
-        font-size: 1.1rem;
-        margin-bottom: 6px;
+        font-size: 1.2rem;
+        margin-bottom: 8px;
     }
     
     .event-section-meta {
@@ -2809,140 +2904,268 @@
     }
     
     .volunteer-shifts-container {
-        gap: 10px;
-        padding: 12px;
+        gap: 12px;
+        padding: 16px 20px;
+        border-radius: 0 0 12px 12px;
     }
     
     .shift-header {
         flex-direction: column;
         align-items: flex-start;
         gap: 8px;
-        padding: 12px 12px 0;
+        padding: 16px 16px 8px;
     }
     
     .shift-title {
-        font-size: 1rem;
+        font-size: 1.1rem;
         margin-right: 0;
     }
     
     .shift-details {
-        padding: 0 12px 10px;
-        gap: 6px;
+        padding: 0 16px 12px;
+        gap: 8px;
     }
     
     .shift-details > div {
         flex-direction: column;
-        gap: 2px;
+        gap: 4px;
     }
     
     .detail-label {
         min-width: auto;
         font-size: 0.85rem;
+        font-weight: 600;
+        color: #6c757d;
     }
     
     .detail-value {
-        font-size: 0.85rem;
+        font-size: 0.9rem;
     }
     
     .shift-actions {
-        padding: 10px 12px 12px;
+        padding: 12px 16px 16px;
         flex-direction: column;
-        gap: 6px;
+        gap: 8px;
     }
     
     .volunteer-signup-btn,
     .event-details-btn {
         width: 100%;
         justify-content: center;
-        padding: 10px 16px;
-        font-size: 0.8rem;
+        padding: 12px 16px;
+        font-size: 0.9rem;
     }
     
     .no-opportunities-message {
-        padding: 32px 16px;
+        padding: 40px 20px;
         margin: 0 16px;
+        border-radius: 12px;
     }
     
     .message-icon .dashicons {
-        font-size: 28px;
-        width: 28px;
-        height: 28px;
+        font-size: 32px;
+        width: 32px;
+        height: 32px;
     }
     
     .no-opportunities-message h3 {
-        font-size: 1.1rem;
+        font-size: 1.2rem;
     }
     
     .no-opportunities-message p {
-        font-size: 0.9rem;
+        font-size: 0.95rem;
     }
 }
 
 @media (max-width: 480px) {
-    /* Extra small mobile devices - card-like table rows */
-    .volunteer-opportunities-table,
-    .volunteer-opportunities-table thead,
-    .volunteer-opportunities-table tbody,
-    .volunteer-opportunities-table th,
-    .volunteer-opportunities-table td,
-    .volunteer-opportunities-table tr {
-        display: block;
+    /* Small mobile devices - enhanced card layout */
+    .volunteer-opportunities .page-header {
+        padding: 20px 12px;
     }
-    
-    .volunteer-opportunities-table thead tr {
-        position: absolute;
-        top: -9999px;
-        left: -9999px;
+
+    .volunteer-opportunities .page-title {
+        font-size: 1.4rem;
     }
-    
+
+    .opportunities-summary {
+        padding: 12px 16px;
+    }
+
+    .volunteer-opportunities-table-container {
+        margin: 0 -4px;
+    }
+
+    .table-responsive {
+        margin: 0 4px;
+    }
+
     .volunteer-opportunities-table tr {
-        background: white;
-        border: 1px solid #dee2e6;
-        border-radius: 8px;
-        margin-bottom: 12px;
+        margin: 4px;
         padding: 16px;
-        box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        border-radius: 16px;
+        margin-bottom: 12px;
     }
-    
+
     .volunteer-opportunities-table td {
-        border: none;
         padding: 6px 0;
-        position: relative;
-        padding-left: 35%;
-        white-space: normal;
+        flex-direction: column;
+        align-items: stretch;
+        gap: 4px;
     }
-    
+
     .volunteer-opportunities-table td:before {
-        content: attr(data-label);
-        position: absolute;
-        left: 0;
-        width: 30%;
-        padding-right: 10px;
-        white-space: nowrap;
-        font-weight: 600;
-        color: #495057;
+        width: auto;
+        margin-right: 0;
+        margin-bottom: 2px;
+        font-size: 0.7rem;
+        line-height: 1.2;
+    }
+
+    .volunteer-opportunities-table td > * {
+        text-align: left;
+    }
+
+    /* Compact mobile content */
+    .col-event .event-info .event-title {
+        font-size: 0.95rem;
+        line-height: 1.25;
+    }
+
+    .col-event .event-info .event-date {
+        font-size: 0.8rem;
+    }
+
+    .col-shift .shift-info .shift-title {
+        font-size: 0.9rem;
+        line-height: 1.25;
+    }
+
+    .col-shift .shift-info .shift-description {
         font-size: 0.75rem;
-        text-transform: uppercase;
-        letter-spacing: 0.3px;
+        line-height: 1.25;
+        /* Truncate long descriptions on mobile */
+        overflow: hidden;
+        display: -webkit-box;
+        -webkit-line-clamp: 2;
+        -webkit-box-orient: vertical;
     }
-    
-    /* Add data-label attributes via CSS content for mobile */
-    .col-event:before { content: "Event"; }
-    .col-shift:before { content: "Role"; }
-    .col-date:before { content: "Date"; }
-    .col-location:before { content: "Location"; }
-    .col-capacity:before { content: "Capacity"; }
-    .col-status:before { content: "Status"; }
-    .col-actions:before { content: "Actions"; }
-    
-    /* Show all columns on very small screens since they stack */
-    .col-location,
-    .col-capacity {
-        display: block;
+
+    .col-date .datetime-info .shift-date {
+        font-size: 0.85rem;
     }
-    
-    .action-buttons {
+
+    .col-date .datetime-info .shift-time {
+        font-size: 0.75rem;
+    }
+
+    .col-location .location-name {
+        font-size: 0.85rem;
+        line-height: 1.25;
+    }
+
+    .col-location .location-address {
+        font-size: 0.75rem;
+        line-height: 1.25;
+        color: #6c757d;
+    }
+
+    .col-capacity .capacity-numbers {
+        font-size: 0.85rem;
+    }
+
+    .col-status .status-badge {
+        font-size: 0.75rem;
+        padding: 3px 6px;
+        align-self: flex-start;
+    }
+
+    .col-actions .action-buttons {
+        justify-content: stretch;
+        flex-direction: column;
+        gap: 6px;
         margin-top: 8px;
+    }
+
+    .col-actions .btn {
+        padding: 10px 12px;
+        font-size: 0.8rem;
+        width: 100%;
+        justify-content: center;
+    }
+
+    .col-actions .btn .dashicons {
+        margin-right: 4px;
+    }
+
+    /* Enhanced card visual hierarchy for mobile */
+    .volunteer-opportunities-table tr {
+        border-left: 4px solid var(--color-primary, #0073aa);
+    }
+
+    .volunteer-opportunities-table tr.row-full {
+        border-left-color: #dc3545;
+        opacity: 0.8;
+    }
+
+    /* Mobile-specific no-opportunities message */
+    .no-opportunities-message {
+        padding: 32px 16px;
+        margin: 0 12px;
+        text-align: center;
+    }
+
+    .no-opportunities-message h3 {
+        font-size: 1.1rem;
+        margin-bottom: 12px;
+    }
+
+    .no-opportunities-message p {
+        font-size: 0.9rem;
+        line-height: 1.5;
+    }
+
+    /* Improved volunteer shifts cards for mobile */
+    .volunteer-events-container {
+        padding: 0 12px;
+        gap: 12px;
+    }
+
+    .event-section-header {
+        padding: 12px 16px;
+    }
+
+    .event-section-title {
+        font-size: 1.1rem;
+        line-height: 1.3;
+    }
+
+    .volunteer-shifts-container {
+        padding: 12px 16px;
+    }
+
+    .shift-header {
+        padding: 12px 12px 6px;
+    }
+
+    .shift-title {
+        font-size: 1rem;
+        line-height: 1.3;
+    }
+
+    .shift-details {
+        padding: 0 12px 8px;
+        gap: 6px;
+    }
+
+    .shift-actions {
+        padding: 8px 12px 12px;
+        gap: 6px;
+    }
+
+    .volunteer-signup-btn,
+    .event-details-btn {
+        padding: 10px 14px;
+        font-size: 0.85rem;
     }
 }
 
